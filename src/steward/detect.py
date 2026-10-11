@@ -1,0 +1,149 @@
+"""Hardware detection for Steward.
+
+Produces a HardwareProfile describing the machine the assistant will run on.
+The profile drives model selection (see selector.py). Detection is deliberately
+conservative: unknown fields default to zero rather than guessing, and every
+case it cannot recognize lands in gpu_kind = "igpu_ram" (system RAM offload)
+or "none" so the selector falls back to the smallest safe bundle.
+"""
+
+from __future__ import annotations
+
+import os
+import platform
+import re
+import subprocess
+from dataclasses import dataclass, field
+
+
+@dataclass
+class HardwareProfile:
+    os_name: str
+    arch: str
+    cpu_name: str = ""
+    npu_tops: float = 0.0
+    gpu_kind: str = "none"  # discrete | unified | igpu_ram | none
+    gpu_name: str = ""
+    vram_gb: float = 0.0
+    ram_gb: float = 0.0
+    unified_gb: float = 0.0
+    bandwidth_gb_s: float = 0.0  # best effort, GB/s for the serving memory
+    notes: list = field(default_factory=list)
+
+    @property
+    def usable_mem_gb(self) -> float:
+        """Memory the model weights can occupy, in GB."""
+        if self.gpu_kind == "unified":
+            return self.unified_gb
+        if self.gpu_kind == "discrete":
+            return self.vram_gb
+        if self.gpu_kind == "igpu_ram":
+            return self.ram_gb
+        return 0.0
+
+
+def _run(cmd: list[str], timeout: int = 5) -> str:
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return r.stdout.strip()
+    except Exception:
+        return ""
+
+
+def _mem_total_gb_linux() -> float:
+    out = _run(["cat", "/proc/meminfo"])
+    m = re.search(r"MemTotal:\s+(\d+) kB", out)
+    return round(int(m.group(1)) / 1024 / 1024, 1) if m else 0.0
+
+
+def _cpu_name_linux() -> str:
+    out = _run(["lscpu"])
+    m = re.search(r"Model name:\s*(.+)", out)
+    return m.group(1).strip() if m else ""
+
+# Apple memory bandwidth by chip family, GB/s (ref tables, 2026 guides).
+_APPLE_BW = {
+    "m1": 68, "m2": 100, "m3": 100, "m4": 120,
+    "m1 pro": 200, "m2 pro": 200, "m3 pro": 150, "m4 pro": 273,
+    "m1 max": 400, "m2 max": 400, "m3 max": 400, "m4 max": 546,
+    "m1 ultra": 800, "m2 ultra": 800, "m3 ultra": 819,
+    "m5": 153,
+}
+
+
+def _apple_profile() -> HardwareProfile:
+    chip = (_run(["sysctl", "-n", "machdep.cpu.brand_string"]) or "apple").lower()
+    ram_kb = _run(["sysctl", "-n", "hw.memsize"])
+    ram_gb = round(int(ram_kb) / 1e9, 1) if ram_kb.isdigit() else 0.0
+    bw = next((v for k, v in _APPLE_BW.items() if k in chip), 100.0)
+    return HardwareProfile(
+        os_name="darwin",
+        arch="arm64",
+        cpu_name=chip,
+        gpu_kind="unified",
+        gpu_name=chip,
+        unified_gb=ram_gb,
+        ram_gb=ram_gb,
+        bandwidth_gb_s=bw,
+        notes=["Apple unified memory; pool is the serving memory."],
+    )
+
+
+def _linux_nvidia_profile(cpu_name: str, ram_gb: float) -> HardwareProfile:
+    smi = _run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"])
+    if not smi:
+        return HardwareProfile(os_name="linux", arch=platform.machine(), cpu_name=cpu_name,
+                               ram_gb=ram_gb, gpu_kind="igpu_ram",
+                               notes=["No nvidia-smi output; falling back to system RAM offload."])
+    name, _, mem = smi.partition(",")
+    vram_mb = 0.0
+    m = re.search(r"(\d+)\s*MiB", mem)
+    if m:
+        vram_mb = float(m.group(1))
+    vram_gb = round(vram_mb / 1024, 1)
+    is_gb10 = "gb10" in name.lower()
+    profile = HardwareProfile(os_name="linux", arch=platform.machine(), cpu_name=cpu_name,
+                              ram_gb=ram_gb, gpu_name=name.strip())
+    if is_gb10:
+        # UMA platform: the unified pool is the serving memory (121 GB usable on U1).
+        profile.gpu_kind = "unified"
+        profile.unified_gb = min(ram_gb, 128.0)
+        profile.bandwidth_gb_s = 273.0  # GB10 LPDDR5X, approximate
+        profile.notes = ["NVIDIA GB10 UMA platform detected."]
+    else:
+        profile.gpu_kind = "discrete"
+        profile.vram_gb = vram_gb
+        bw_lookup = {
+            "4090": 1008, "4080": 717, "4070 ti": 672, "4060 ti": 288, "4060": 272,
+            "3090": 936, "5080": 960, "5070 ti": 896, "5070": 448, "5060": 448,
+            "5090": 1792,
+        }
+        for k, v in bw_lookup.items():
+            if k in name.lower():
+                profile.bandwidth_gb_s = v
+                break
+        profile.notes = [f"Discrete GPU; VRAM {vram_gb} GB is the serving memory."]
+    return profile
+
+
+def _npu_estimate(cpu_name: str) -> float:
+    name = cpu_name.lower()
+    if "ryzen ai 9 hx 370" in name or "ryzen ai 9 hx 365" in name or "ryzen ai max" in name:
+        return 50.0
+    if "core ultra" in name:
+        return 40.0
+    return 0.0
+
+
+def detect() -> HardwareProfile:
+    system = platform.system().lower()
+    arch = platform.machine().lower()
+    if system == "darwin" and arch.startswith("arm"):
+        return _apple_profile()
+    cpu_name = _cpu_name_linux() if system == "linux" else platform.processor() or ""
+    ram_gb = _mem_total_gb_linux() if system == "linux" else 0.0
+    if system == "linux":
+        return _linux_nvidia_profile(cpu_name, ram_gb)
+    return HardwareProfile(os_name=system, arch=arch, cpu_name=cpu_name,
+                           ram_gb=ram_gb, gpu_kind="igpu_ram",
+                           notes=["Unsupported OS for full detection; treating as RAM offload."])
