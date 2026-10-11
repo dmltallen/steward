@@ -33,6 +33,16 @@ project, not R1A. Source of truth is gitea `don/steward`.
    (GET /api/v1/repos/don/steward/branches/master, token in ~/.git-credentials).
 7. Do not push R1A product images anywhere; this is standards software, MIT.
 8. Spool discipline: clean scratch/jobs at session end; keep the repo clean.
+9. Memory safety in cron sprints: never build C++ inference engines from
+   source inside a cron worker (llama.cpp, vLLM source builds). The worker
+   runs in a memory-capped cgroup and a compile can trip the OOM killer and
+   kill the whole run (T1 died this way Oct 11: cc1plus was OOM-killed).
+   Use the already-running Ollama (/home/user/ollama-local/bin/ollama serve,
+   API http://localhost:11434) or small prebuilt wheels. Never run a model
+   download and a build at the same time. Do not attempt the 80B tier pull
+   inside a cron window; record honest partials and mark [uncertain].
+   When testing local APIs use the localhost hostname form, not raw IPs
+   (raw-IP terminal commands get blocked by the local security scan).
 
 ## Next (work queue, newest first)
 

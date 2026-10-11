@@ -128,6 +128,12 @@ chat screen shows it; the demo steps are documented with quoted output.
 
 ## Guardrails (every sprint, binding)
 
+- MEMORY GUARD (added Oct 11 after T1 died to the OOM killer): no source
+  builds of C++ inference engines inside cron workers (no llama.cpp/vLLM
+  compile; use the installed Ollama or prebuilt wheels); never run a model
+  pull and a build concurrently; no 80B-tier pull inside a cron window;
+  record honest partials with [uncertain]. Use the localhost hostname form
+  for local API tests, not raw IPs (security scan blocks them).
 - Read docs/AGENT-BRIEF.md rules before anything: English only, no em dashes,
   no subscriptions, selector single-source, gitea = source of truth, no
   invented model identities, spool discipline.
