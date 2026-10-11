@@ -51,14 +51,12 @@ project, not R1A. Source of truth is gitea `don/steward`.
    assigned sprint, updates its status row, and posts to AGENT-BRIEF. After
    the window, work the top item below.
 
-1. Decide the serving backend (SPRINTS T1): benchmark Ollama vs vLLM on U1
-   (GB10) for the realistic bundle sizes; record numbers in
-   docs/ARCHITECTURE.md and close the open item with a choice and measured
-   tokens/sec.
-2. CI: add .gitea/workflows/pytest.yaml so the selector tests run on u1-runner.
-3. Scaffold the installer plan: signed-installer build path for a Windows x86
-   and Linux (Debian/Ubuntu) Class A/B target, with the detect() call at first
-   run (v0.5 per ROADMAP).
+1. DONE in T1 (Oct 11): serving backend benchmarked and closed in
+   docs/ARCHITECTURE.md (Ollama chosen; real numbers from U1/GB10), CI workflow
+   .gitea/workflows/pytest.yaml added and dispatched, and `steward wizard`
+   first-run CLI scaffolded (detect + plan + bundle install commands). The
+   80B-tier row stays [uncertain] and vLLM is deferred to an interactive
+   session per the cron memory guard; both are logged in ARCHITECTURE.md.
 
 ## Report shape
 

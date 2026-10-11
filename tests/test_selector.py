@@ -55,3 +55,14 @@ def test_never_empty_bundle():
     for mem in (8, 6, 4):
         b = select_bundle(_profile(mem))
         assert b.capability is not None and b.assistant is not None
+
+
+def test_wizard_renders_bundle(capsys):
+    # First-run wizard must detect hardware, plan, and print a bundle + pulls.
+    from steward.cli import main
+    rc = main(["wizard"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "Chosen bundle" in out
+    assert "class:" in out
+    assert "ollama pull " in out

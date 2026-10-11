@@ -3,6 +3,7 @@
 Commands:
     steward doctor    print the detected hardware profile
     steward plan      print the auto-selected model bundle
+    steward wizard    first-run setup: detect, plan, print install commands
 """
 
 from __future__ import annotations
@@ -47,16 +48,43 @@ def _plan() -> None:
     }, indent=2))
 
 
+def _wizard() -> int:
+    from .detect import detect
+    from .selector import select_bundle
+    p = detect()
+    b = select_bundle(p)
+    print("Steward first-run setup")
+    print("=======================")
+    print("Detected hardware")
+    print(f"  os: {p.os_name} {p.arch}, cpu: {p.cpu_name or 'unknown'}")
+    print(f"  memory pool: {p.usable_mem_gb:g} GB ({p.gpu_kind})")
+    print()
+    print("Chosen bundle")
+    print(b.describe())
+    print()
+    pulls = [b.capability.id]
+    if b.assistant.id != b.capability.id:
+        pulls.insert(0, b.assistant.id)
+    print("Setup: install the backend, then pull the bundle models")
+    print(f"  1. ollama serve")
+    for m in pulls:
+        print(f"  2. ollama pull {m}")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="steward")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("doctor", help="detected hardware profile")
     sub.add_parser("plan", help="auto-selected model bundle")
+    sub.add_parser("wizard", help="first-run setup wizard")
     args = parser.parse_args(argv)
     if args.cmd == "doctor":
         _doctor()
     elif args.cmd == "plan":
         _plan()
+    elif args.cmd == "wizard":
+        return _wizard()
     return 0
 
 
