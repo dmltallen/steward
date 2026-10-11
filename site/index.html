@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Steward: the personal AI you own</title>
+  <meta name="description" content="Steward turns hardware you already have into an always-on personal AI assistant. Free to install, perpetual license, no subscription, no hardware markup.">
+  <link rel="stylesheet" href="style.css">
+  <script>window._stewardVariant = new URLSearchParams(window.location.search).get('v') || 'a';</script>
+</head>
+<body data-variant="a">
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <span class="logo">Steward</span>
+      <nav class="nav">
+        <a href="#how">How it works</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#compare">Why Steward</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="wrap">
+        <p class="eyebrow">Owned AI. On your hardware.</p>
+        <h1>The personal AI you own,<br>served on hardware you already have.</h1>
+        <p class="lede">
+          Steward turns the computer you already own into an always-on personal
+          assistant. It detects your machine, picks the right open models, and
+          serves them to your phone and desktop. No $3,499 one-use box. No
+          monthly subscription. One-time license, perpetual use.
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="#pricing">See the one-time price</a>
+          <a class="btn btn-ghost" href="#how">How it works</a>
+        </div>
+        <p class="fine">Free to install and use. Paid only for feature packs you want.</p>
+      </div>
+    </section>
+
+    <section class="diagram" id="how">
+      <div class="wrap">
+        <div class="diagram-card" aria-label="Steward diagram placeholder">
+          <svg viewBox="0 0 640 240" role="img" aria-hidden="true" class="diagram-svg">
+            <g fill="none" stroke="#2f3e46" stroke-width="2">
+              <rect x="40" y="60" width="180" height="120" rx="12" fill="#e7f0ed"/>
+              <rect x="440" y="60" width="160" height="120" rx="12" fill="#fdf6ec"/>
+              <path d="M 40 120 H 440" stroke-dasharray="6 6"/>
+              <path d="M 300 40 V 200" stroke-dasharray="6 6" opacity="0"/>
+            </g>
+            <text x="130" y="110" text-anchor="middle" font-family="inherit" font-size="17" fill="#2f3e46">Your hardware</text>
+            <text x="130" y="134" text-anchor="middle" font-family="inherit" font-size="13" fill="#5c6b73">GPU or unified memory you own</text>
+            <text x="520" y="110" text-anchor="middle" font-family="inherit" font-size="17" fill="#2f3e46">Steward</text>
+            <text x="520" y="134" text-anchor="middle" font-family="inherit" font-size="13" fill="#5c6b73">detects, selects, serves</text>
+            <text x="300" y="20" text-anchor="middle" font-family="inherit" font-size="12" fill="#5c6b73">LAN</text>
+            <text x="130" y="238" text-anchor="middle" font-family="inherit" font-size="12" fill="#8a9ba5">Diagram placeholder</text>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <section class="benefits">
+      <div class="wrap columns">
+        <div class="col">
+          <h3>Zero setup decisions</h3>
+          <p>It detects memory, GPU class, and bandwidth, then auto-selects the model bundle that fits. The hard choice is made for you.</p>
+        </div>
+        <div class="col">
+          <h3>Reachable everywhere</h3>
+          <p>One always-on assistant on the LAN, reachable from your phone and your computer. No cloud hop, no account, no data leaving home.</p>
+        </div>
+        <div class="col">
+          <h3>Yours to keep</h3>
+          <p>One-time perpetual license, offline forever. Open models, MIT source. Feature packs are optional add-ons, never a gate.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="pricing" id="pricing">
+      <div class="wrap">
+        <p class="eyebrow">Pricing</p>
+        <h2>One price. Then it's yours.</h2>
+        <p class="lede" id="price-note">Perpetual license on your hardware. Nothing renews.</p>
+
+        <p class="test-note" id="test-note">Test control: pricing A/B. Variant shows only this page's price.</p>
+        <div class="price-switch" role="radiogroup" aria-label="Pricing variant A/B test">
+          <button class="price-tab is-active" data-variant="a">Variant A: $79 anchor</button>
+          <button class="price-tab" data-variant="b">Variant B: $149 anchor</button>
+        </div>
+
+        <div class="price-card">
+          <p class="price-kicker" id="price-tier">Personal: perpetual license, one device</p>
+          <p class="price-value"><span id="price-amount">$79</span><span class="price-unit"> one time</span></p>
+          <ul class="price-list">
+            <li>Auto-selected model bundle up to the 24 GB tier</li>
+            <li>Full persistent memory and proactive agent</li>
+            <li>Phone and web access on one device</li>
+            <li>All over-the-air model updates at this level</li>
+          </ul>
+          <button class="btn btn-primary price-cta" data-plan="personal">Choose this plan</button>
+          <p class="fine">Free tier includes install, base assistant, and basic memory. No card required.</p>
+        </div>
+
+        <div class="email-capture" id="capture">
+          <h3>Want the first public build?</h3>
+          <p>Leave your email and we will email you when the public build is ready. No list spam, no selling the address.</p>
+          <form id="capture-form" novalidate>
+            <input type="email" id="capture-email" name="email" placeholder="you@example.com" autocomplete="email" required>
+            <button type="submit" class="btn btn-primary">Notify me</button>
+          </form>
+          <p class="form-note" id="capture-status" hidden></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="compare" id="compare">
+      <div class="wrap">
+        <p class="eyebrow">Why Steward</p>
+        <h2>Same ownership story. None of the markup.</h2>
+        <ul class="compare-list">
+          <li><strong>No $3,499 one-use computer.</strong> Ghost Core sells the box to sell the software. Steward runs on the GPU or mini PC you already own.</li>
+          <li><strong>No $200/month.</strong> A one-time $79 to $149 outlives two months of a cloud AI subscription, and the models improve with free OTA updates.</li>
+          <li><strong>No DRAM supercycle exposure.</strong> You do not buy memory from us. You already paid for it.</li>
+          <li><strong>Honest about memory.</strong> An 80B MoE needs about 48 GB. We serve it on a machine that has it, not on a 24 GB box that does not.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <span>Steward. Intelligence you own.</span>
+      <span class="footer-meta">Private project. MIT source. Not affiliated with any hardware vendor.</span>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

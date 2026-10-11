@@ -51,6 +51,15 @@ project, not R1A. Source of truth is gitea `don/steward`.
    assigned sprint, updates its status row, and posts to AGENT-BRIEF. After
    the window, work the top item below.
 
+2. DONE in B1 (Oct 11): landing page in site/ (self-hosted static, calm
+   palette, large type, diagram placeholder, email capture stub, two A/B
+   pricing variants via ?v=a/$79 and ?v=b/$149, event-log stub in app.js).
+   docs/PRICING.md v2.0 carries the full acceptance A/B design, the free to
+   paid funnel with event names, and the decision rule; docs/GTM.md carries
+   the anti-Ghost positioning, ranked channels with variant routing, first-30
+   days plan, and objection handling. Both docs are ready for B2 to build the
+   competitive synthesis and one-pager on top.
+
 1. DONE in T1 (Oct 11): serving backend benchmarked and closed in
    docs/ARCHITECTURE.md (Ollama chosen; real numbers from U1/GB10), CI workflow
    .gitea/workflows/pytest.yaml added and dispatched, and `steward wizard`

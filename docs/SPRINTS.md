@@ -9,7 +9,7 @@ sprint, update its status here, update AGENT-BRIEF "Next", and report.
 | Sprint | Window (PDT) | Track | Focus | Status |
 |---|---|---|---|---|
 | T1 | Oct 11 00:30 | Technical | Serving backend benchmark + CI + installer scaffold | done (Oct 11 T1) |
-| B1 | Oct 11 09:00 | Business | Landing page + acceptance-pricing A/B design + GTM outline | pending |
+| B1 | Oct 11 09:00 | Business | Landing page + acceptance-pricing A/B design + GTM outline | done (Oct 11 B1) |
 | M | Oct 12 00:30 | Technical (app) | iPhone + Android app scaffold, beautiful and easy | pending |
 | B2 | Oct 12 09:00 | Business | Ghost review/sentiment synthesis + sales one-pager + acceptance launch prep | pending |
 | T2 | Oct 13 00:30 | Technical | End-to-end integration on U1 + first-look demo | pending |
