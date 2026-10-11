@@ -36,8 +36,13 @@ project, not R1A. Source of truth is gitea `don/steward`.
 
 ## Next (work queue, newest first)
 
-1. Decide the serving backend (ARCHITECTURE open item): benchmark Ollama vs
-   vLLM on U1 (GB10) for the 80B MoE bundle; record numbers in
+0. SPRINTS ACTIVE Oct 11-13 2026: scheduled cron sprints T1, B1, M, B2, T2 per
+   docs/SPRINTS.md. Each sprint agent reads SPRINTS.md, executes only its
+   assigned sprint, updates its status row, and posts to AGENT-BRIEF. After
+   the window, work the top item below.
+
+1. Decide the serving backend (SPRINTS T1): benchmark Ollama vs vLLM on U1
+   (GB10) for the realistic bundle sizes; record numbers in
    docs/ARCHITECTURE.md and close the open item with a choice and measured
    tokens/sec.
 2. CI: add .gitea/workflows/pytest.yaml so the selector tests run on u1-runner.
