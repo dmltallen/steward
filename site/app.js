@@ -55,6 +55,12 @@
   }
 
   document.addEventListener('DOMContentLoaded', function () {
+    var wantAbDemo = (new URLSearchParams(window.location.search).get('ab') === 'show');
+    if (!wantAbDemo) {
+      document.querySelectorAll('.test-note, .price-switch').forEach(function (el) {
+        el.style.display = 'none';
+      });
+    }
     applyVariant(ctx.variant);
     track('page_view');
 

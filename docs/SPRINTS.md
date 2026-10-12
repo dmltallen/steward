@@ -11,7 +11,7 @@ sprint, update its status here, update AGENT-BRIEF "Next", and report.
 | T1 | Oct 11 00:30 | Technical | Serving backend benchmark + CI + installer scaffold | done (Oct 11 T1) |
 | B1 | Oct 11 09:00 | Business | Landing page + acceptance-pricing A/B design + GTM outline | done (Oct 11 B1) |
 | M | Oct 12 00:30 | Technical (app) | iPhone + Android app scaffold, beautiful and easy | done (Oct 12 M: Expo app scaffold in apps/mobile) |
-| B2 | Oct 12 09:00 | Business | Ghost review/sentiment synthesis + sales one-pager + acceptance launch prep | pending |
+| B2 | Oct 12 09:00 | Business | Ghost review/sentiment synthesis + sales one-pager + acceptance launch prep | done (Oct 12 B2: COMPETITOR.md, SELLING-ONE-PAGER.md, GTM v2.0 launch prep + A/B tab gated) |
 | T2 | Oct 13 00:30 | Technical | End-to-end integration on U1 + first-look demo | pending |
 
 ## T1 (Technical): serving backend + CI + installer scaffold
@@ -103,6 +103,23 @@ Verified: `npm run typecheck` clean, `npx expo export` produced Hermes bundles
 for both platforms (2.3 MB each). Run instructions in apps/mobile/README.md; a
 manual `npx expo start` is required to run on iOS/Android (no headless device
 in cron).
+
+## B2 outcome (Oct 12)
+
+Shipped docs/COMPETITOR.md v1.0 (watch already had no reportable events, as no
+independent unit review exists; light web sweep confirmed it: batch 1 ships Oct
+31, so no hands-on Core reviews exist yet. Captured the strong skeptical
+r/LocalLLM sentiment with verified quotes, audited Ghost's launch claims
+hold/fail, added the Steward vs Ghost table with sources). Shipped a one-page
+sales sheet docs/SELLING-ONE-PAGER.md v1.0 (pitch, price vs hardware spend,
+capability ladder, objection handling). Acceptance launch prep: docs/GTM.md
+bumped to v2.0 with finalized A/B variants, eight per-channel outreach message
+drafts, a launch checklist with explicit [blocked]/[warn] gates, and a timing
+note pegging the launch window to Ghost's Oct 31 shipment. Build: the A/B demo
+tab switcher in site/app.js is now hidden unless `?ab=show` is present, so real
+traffic cannot see or switch the variant; site/README.md documents the gate.
+Selector tests kept green. Launch gates still open: email backend, daemon+mobile
+integration (T2), Class B machine verification.
 
 ## B2 (Business): Ghost intel + sales one-pager + acceptance launch prep
 

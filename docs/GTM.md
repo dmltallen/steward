@@ -1,6 +1,7 @@
 # Steward Go-to-Market Outline (B1)
 
-**Version:** 1.0, 2026-10-11
+**Version:** 2.0, 2026-10-12 (B2 launch prep: finalized A/B variants, per-channel
+outreach message drafts, launch checklist). Base outline from B1 (Oct 11).
 
 ## One-line position
 
@@ -107,3 +108,105 @@ honest list; these communities check.
 - "Too cheap to be real." Anchor to hardware spend: 79 is 6-8% of the machine
   doing the work; the box you own is the real investment, we just add the
   intelligence layer.
+
+## B2: Finalized A/B variants (locked 2026-10-12)
+
+Two landing variants that differ in exactly one element, the price, per
+docs/PRICING.md decision rule. Both carried in `site/index.html?v=a` and
+`site/?v=b`. Build completeness: the demo tab switcher is now hidden unless
+`?ab=show` is present (app.js), so real traffic cannot see the other variant.
+
+| Variant | Price | Copy | Served to | Channel tags |
+|---|---|---|---|---|
+| A | Personal perpetual license $79 one time | "One price. Then it's yours." Same body copy, pricing card shows $79 | Class B: 16-24 GB GPU owners, towers, mini-PC homelab | `?v=a`, `utm_source=r-hardware`, `r-selfhosted`, `st-forums` |
+| B | Personal perpetual license $149 one time | Identical body copy, pricing card shows $149 | Class C: 48-128 GB workstation owners (GB10, Strix Halo, Mac) | `?v=b`, `utm_source=reddit-dgxspark`, `strix-halo`, `mac-guides` |
+
+Variant assignment is per channel in the table in B1, cookie the assigned
+variant so return visits keep it, and every CTA link carries the variant plus a
+source tag for clean A/B analysis. Winner decision rule, funnel event names, and
+the min-300-visitors target are in PRICING.md and are final.
+
+## B2: Community outreach message drafts
+
+House rules first: one distinct post per channel, never a paste; lead with the
+economics; no hype adjectives; attack the pricing structure, never the people;
+link the docs, not a sales page; no em dashes. Each draft below is a first-post
+lead the channel answer can expand. Verbatim numbers are anchored in
+HARDWARE-MATRIX.md and COMPETITOR.md.
+
+1. r/LocalLLaMA (launch thread). "Steward is the anti-Ghost: it detects your
+   machine, auto-selects the right open models, and serves them to your phone
+   from hardware you already own. Ghost Core charges $3,499 for a 24 GB GPU box
+   to deliver software that runs on a $600 used 3090, which has more bandwidth
+   than Core's card. Free to install, one-time $79 license, no subscription.
+   Details and the docs: [link v=a]. What breaks first?" Then answer every
+   comment, including the hostile ones.
+2. r/hardware. "The Ghost Core value test: $3,499 for a 24 GB RTX Pro 4000 box.
+   Same 24 GB tier on a used 3090 for about $600, then a one-time $79 license
+   adds the assistant layer. Steward does detect + plan + wizard on the box you
+   own. Am I wrong about the economics? [link v=a]"
+3. Hacker News (Show HN). Title: "Show HN: Steward, the anti-Ghost personal AI
+   (MIT, runs on hardware you own)" Body: the README narrative, the 24 GB
+   ceiling fact, `steward wizard`, the honest "still to build" list (daemon,
+   clients, OTA, license gate), and the docs links. Never omit the honest list.
+   Both variants linked [v=a][v=b].
+4. r/selfhosted / r/homelab. "An always-on personal AI under 15 W on a mini PC
+   you already run: Steward detects the box, picks the bundle, serves your
+   phone. Cost per year is the electricity plus a one-time $79. Self-hosted,
+   MIT, no cloud account. [link v=a]"
+5. NVIDIA GB10 / DGX Spark owners (r/DGXSpark, GB10 threads). "You bought the
+   best local-AI hardware on the market. Steward is the missing intelligence
+   layer: full 80B MoE tier served locally, phone app, no subscription. One-time
+   $149, and residency honest: your 128 GB pool is exactly what an 80B needs.
+   [link v=b]"
+6. Strix Halo owners (r/Minisforum, r/Beelink, AI Max+ 395 threads). "96-128 GB
+   of unified memory is a 70B/80B machine. Steward turns it into an always-on
+   assistant reachable from your phone. One-time $149, no subscription, no
+   cloud. [link v=b]"
+7. Mac local-LLM guides (r/macmini, r/macstudio, LocalLLaMA Mac threads). "The
+   cheapest legitimate 70B is a used M1 Max Studio. Steward adds the no-setup
+   bundle selection, persistent memory, and phone access on top. One-time $149.
+   Complements the existing build guides, does not undercut them. [link v=b]"
+8. ServeTheHome forums. Written overview, not a listicle: the power and
+   cost-per-year story, the certified hardware matrix link, the honesty rule
+   about memory classes. [link v=a]
+
+## B2: Launch checklist
+
+Blocks marked [blocked] are not done yet and gate going public; [warn] are
+soft. Source of truth for each gate is the named doc.
+
+1. Landing page renders both variants locally (`python3 -m http.server` from
+   site/, `?v=a` and `?v=b`). A/B tab hidden from real traffic. DONE B1 + B2.
+2. Full detect-to-serve loop proven on one Class B and one Class C machine
+   (docs/ARCHITECTURE.md covers Class C on U1; Class B machine needed)
+   [blocked: needs a separate 16-24 GB machine].
+3. `steward wizard` prints valid bundles on the same two machines. Wizard
+   scaffolded in T1; wizard end-to-end verified on Class B [uncertain].
+4. Email capture has a real backend. The form is a stub today; stand up the
+   list and set `STEWARD_EVENTS_ENDPOINT` so `page_view` and `email_submit`
+   transmit (docs/PRICING.md funnel) [blocked].
+5. Serving daemon and mobile chat wired end to end (T2 sprint, Oct 13)
+   [blocked].
+6. Record a 30-second screencast of the install-to-first-answer path. Skip
+   until items 2 and 5 pass [blocked].
+7. CTA links carry variant + source tag (r-hardware, r-selfhosted, dgxspark,
+   strix-halo, mac-guides, hn) for the A/B split. Cookie assignment implemented
+   in app.js [warn: cookie code not written yet].
+8. Copy passes the house-rule pass: no hype adjectives, no em dashes, attack
+   only the pricing structure. Docs read-through required before first post
+   [warn].
+9. The honest "still to build" list is current and included in the Show HN
+   body, per the community rule. AGENT-BRIEF "Next" is the live list.
+10. Send sequence locked: Show HN first, r/LocalLLaMA same day, then Class B
+    channels in week 2, Class C in week 3, transparency follow-up at day 30
+    with the A/B readout (B1 schedule). Do not post to any channel until items
+    2-5 pass; broken first impressions are permanently expensive.
+
+## B2: Timing note
+
+Ghost Core batch 1 ships Oct 31, so the first independent core reviews land in
+early November. That window is when Steward must already be a known alternative
+in these communities. Treat the review wave as the readout moment for the
+competitor synthesis in COMPETITOR.md, not as the reason to launch early before
+the blocked gates above pass.

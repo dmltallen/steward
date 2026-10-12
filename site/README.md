@@ -18,9 +18,10 @@ The page serves two pricing-test variants that differ only in the price:
 - `index.html?v=b` -> $149 anchor (Class C: 48-128 GB workstations)
 
 `window._stewardVariant` is set from `v=` on load and `app.js` swaps the price
-string and fires a `page_view` event. The tab switcher on the page is a local
-demo control; gate it behind a query key (for example `?ab=show`) before
-sending real traffic so visitors never see the other variant.
+string and fires a `page_view` event. The tab switcher on the page is a demo
+control: it is hidden for real visitors and only shown when `?ab=show` is in the
+URL, so external traffic can never see or switch to the other variant. Gate
+`?ab=show` stays a build-time key; it is not advertised anywhere.
 
 ## Event hooks
 
