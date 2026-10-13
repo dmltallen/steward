@@ -7,8 +7,8 @@
  * without touching app code.
  */
 export const config = {
-  /** Address of the Steward daemon on the LAN. T2 wires a live daemon here. */
-  daemonUrl: process.env.EXPO_PUBLIC_STEWARD_DAEMON_URL ?? 'http://127.0.0.1:3876',
+  /** Fixed local port of the Steward daemon (src/steward/server), see docs/DEMO.md. */
+  daemonUrl: process.env.EXPO_PUBLIC_STEWARD_DAEMON_URL ?? 'http://127.0.0.1:3877',
   appName: 'Steward',
   version: '0.1.0',
   /** Perpetual license only. Free trial is a time-limited evaluation, never a subscription. */

@@ -78,6 +78,7 @@ def main(argv=None) -> int:
     sub.add_parser("doctor", help="detected hardware profile")
     sub.add_parser("plan", help="auto-selected model bundle")
     sub.add_parser("wizard", help="first-run setup wizard")
+    sub.add_parser("serve", help="run the local daemon (src/steward/server/daemon.py)")
     args = parser.parse_args(argv)
     if args.cmd == "doctor":
         _doctor()
@@ -85,6 +86,9 @@ def main(argv=None) -> int:
         _plan()
     elif args.cmd == "wizard":
         return _wizard()
+    elif args.cmd == "serve":
+        from .server.daemon import main as daemon_main
+        return daemon_main((argv or [])[1:])
     return 0
 
 

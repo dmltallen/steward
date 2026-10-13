@@ -1,6 +1,6 @@
 # Steward Roadmap
 
-**Version:** 1.0, 2026-10-10 (initial). Dates are targets, not commitments.
+**Version:** 1.1, 2026-10-13 (T2: daemon + mobile chat + first-look demo done on U1)
 
 ## v0.1 Prototype: DONE (Oct 10 2026)
 
@@ -12,13 +12,17 @@
 
 ## v0.5 Minimal product (next)
 
-- Signed installer for Windows x86 and Linux (Debian/Ubuntu) on Class A and B.
-- Daemon that downloads and serves the selected bundle (serving backend
-  decided by benchmark, see ARCHITECTURE open item).
-- Phone + web clients over zero-config LAN pairing (QR).
-- License gate (free tier functional; perpetual license issuance).
-- Self-test that demonstrates the first wow (calendar or file action).
-- CI on gitea: selector tests + detect tests in `.gitea/workflows/pytest.yaml`.
+- DONE (T2 Oct 13): daemon that serves the selected bundle via Ollama and a
+  local API (/health, /bundle, /chat, demo routes) on a fixed port.
+- DONE (T2 Oct 13): first-wow self-test: daemon summarizes a real local
+  calendar/notes folder through the local model (docs/DEMO.md).
+- DONE (T2 Oct 13): phone client chat wired end to end (apps/mobile daemon.ts
+  hits the real /chat; manual device run steps in docs/DEMO.md).
+- Pending: signed installer for Windows x86 and Linux (Debian/Ubuntu), Class A and B.
+- Pending: zero-config LAN pairing (QR) for the phone client.
+- Pending: web client (site/ static page exists; live daemon binding not yet).
+- Pending: license gate (free tier functional; perpetual license issuance).
+- CI on gitea: selector tests in `.gitea/workflows/pytest.yaml` (running).
 
 ## v1.0 Launch
 

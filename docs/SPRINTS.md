@@ -12,7 +12,7 @@ sprint, update its status here, update AGENT-BRIEF "Next", and report.
 | B1 | Oct 11 09:00 | Business | Landing page + acceptance-pricing A/B design + GTM outline | done (Oct 11 B1) |
 | M | Oct 12 00:30 | Technical (app) | iPhone + Android app scaffold, beautiful and easy | done (Oct 12 M: Expo app scaffold in apps/mobile) |
 | B2 | Oct 12 09:00 | Business | Ghost review/sentiment synthesis + sales one-pager + acceptance launch prep | done (Oct 12 B2: COMPETITOR.md, SELLING-ONE-PAGER.md, GTM v2.0 launch prep + A/B tab gated) |
-| T2 | Oct 13 00:30 | Technical | End-to-end integration on U1 + first-look demo | pending |
+| T2 | Oct 13 00:30 | Technical | End-to-end integration on U1 + first-look demo | done (Oct 13 T2: daemon on 127.0.0.1:3877, real local chat via qwen3:8b, docs/DEMO.md) |
 
 ## T1 (Technical): serving backend + CI + installer scaffold
 
@@ -160,6 +160,25 @@ Deliverables:
 
 Acceptance: localhost API answers a real model-generated message; the mobile
 chat screen shows it; the demo steps are documented with quoted output.
+
+## T2 outcome (Oct 13)
+
+Shipped the daemon in src/steward/server/daemon.py (stdlib-only HTTP server on
+127.0.0.1:3877, Ollama backend, routes /health, /bundle, /chat,
+/demo/source, /demo/summarize; run docs in src/steward/server/README.md and a
+`steward serve` CLI alias). Wired apps/mobile chat to the real /chat endpoint
+in src/lib/daemon.ts (stub removed) and moved the app default daemon URL to
+port 3877 (3876 stays owned by the SP REST daemon on U1). First-look demo:
+the daemon reads the real local folder demo/source (calendar + launch notes)
+and summarizes it through the local model; steps + quoted live output in
+docs/DEMO.md. Verified live on U1: real qwen3:8b chat reply and data-source
+summary (quoted in DEMO.md), 8 selector tests green, app `tsc --noEmit` clean.
+Mobile run itself is manual (Expo cannot boot a device headless in a cron
+worker): exact steps in docs/DEMO.md. Honestly: the selector-chosen 80B
+capability tier is still [uncertain] and not resident in a cron window; the
+daemon serves the resident 8B assistant per the ARCHITECTURE decision and
+reports both in /bundle. ARCHITECTURE.md 1.2 has the running topology,
+ROADMAP.md 1.1 marks v0.5 integration done.
 
 ## Guardrails (every sprint, binding)
 

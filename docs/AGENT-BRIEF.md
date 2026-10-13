@@ -51,17 +51,30 @@ project, not R1A. Source of truth is gitea `don/steward`.
    assigned sprint, updates its status row, and posts to AGENT-BRIEF. After
    the window, work the top item below.
 
-1. DONE in B2 (Oct 12): docs/COMPETITOR.md v1.0 (no independent Core reviews
+1. DONE in T2 (Oct 13): end-to-end integration live on U1. Daemon
+   src/steward/server/daemon.py on 127.0.0.1:3877 (Ollama backend; routes
+   /health, /bundle, /chat, /demo/source, /demo/summarize; run docs in
+   src/steward/server/README.md + `steward serve` alias). apps/mobile chat
+   wired to the real /chat endpoint (daemon.ts stub removed, default port
+   3877). First-look demo in docs/DEMO.md with quoted live output: real
+   qwen3:8b chat reply and a real data-source summary from demo/source.
+   Verified: 8 selector tests green, app typecheck clean. Mobile run itself is
+   manual (no headless device in cron): exact steps in docs/DEMO.md. Honesty:
+   80B capability tier still [uncertain], not resident in cron; daemon serves
+   the resident 8B assistant and reports the plan in /bundle.
+   ARCHITECTURE.md 1.2 (topology), ROADMAP.md 1.1 (v0.5 integration done).
+
+2. DONE in B2 (Oct 12): docs/COMPETITOR.md v1.0 (no independent Core reviews
    exist yet; batch 1 ships Oct 31. Skeptical r/LocalLLM sentiment quoted
    verbatim, Ghost launch claims audited hold/fail, Steward vs Ghost table
    with sources), docs/SELLING-ONE-PAGER.md v1.0 (pitch, price vs hardware
    spend, capability ladder, objection handling), docs/GTM.md v2.0 (finalized
    A/B variants, eight per-channel outreach drafts, launch checklist with
    [blocked]/[warn] gates), site/app.js A/B tab now gated behind ?ab=show.
-   Selector tests kept green. Open launch gates: email backend, daemon+mobile
-   integration (T2), Class B machine verification.
+   Selector tests kept green. Open launch gates: email backend, Class B
+   machine verification (daemon+mobile integration closed by T2 Oct 13).
 
-2. DONE in M (Oct 12): Expo/React Native TypeScript app scaffold in
+3. DONE in M (Oct 12): Expo/React Native TypeScript app scaffold in
    apps/mobile (SDK 57, RN 0.86). Design tokens in one file
    (src/theme/tokens.ts), light+dark, four screens with working navigation
    (onboarding 3 slides, QR-pair stub, chat wired to a configurable daemon
@@ -71,7 +84,7 @@ project, not R1A. Source of truth is gitea `don/steward`.
    daemon via EXPO_PUBLIC_STEWARD_DAEMON_URL. Manual `npx expo start` needed
    to run on a device (interactive tooling is blocked in cron workers).
 
-3. DONE in B1 (Oct 11): landing page in site/ (self-hosted static, calm
+4. DONE in B1 (Oct 11): landing page in site/ (self-hosted static, calm
    palette, large type, diagram placeholder, email capture stub, two A/B
    pricing variants via ?v=a/$79 and ?v=b/$149, event-log stub in app.js).
    docs/PRICING.md v2.0 carries the full acceptance A/B design, the free to
@@ -80,7 +93,7 @@ project, not R1A. Source of truth is gitea `don/steward`.
    days plan, and objection handling. Both docs are ready for B2 to build the
    competitive synthesis and one-pager on top.
 
-4. DONE in T1 (Oct 11): serving backend benchmarked and closed in
+5. DONE in T1 (Oct 11): serving backend benchmarked and closed in
    docs/ARCHITECTURE.md (Ollama chosen; real numbers from U1/GB10), CI workflow
    .gitea/workflows/pytest.yaml added and dispatched, and `steward wizard`
    first-run CLI scaffolded (detect + plan + bundle install commands). The

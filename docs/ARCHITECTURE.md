@@ -1,6 +1,31 @@
 # Steward Architecture
 
-**Version:** 1.1, 2026-10-11 (serving backend benchmarked on U1, T1)
+**Version:** 1.2, 2026-10-13 (T2: running topology documented, daemon live on U1)
+
+## Running topology (T2, live on U1 2026-10-13)
+
+```
+phone app (apps/mobile, Expo/RN)
+   chat screen -> EXPO_PUBLIC_STEWARD_DAEMON_URL (default localhost:3877)
+        | HTTP JSON
+        v
+Steward daemon  src/steward/server/daemon.py
+   bound 127.0.0.1:3877 (fixed port; STEWARD_HOST/STEWARD_PORT to change)
+   routes: GET /health, GET /bundle, POST /chat, GET /demo/source,
+           POST /demo/summarize
+        | /api/chat JSON
+        v
+Ollama backend  http://localhost:11434  (T1 benchmark winner, daemon 2046)
+   resident on U1: qwen3:8b (served assistant), gemma4:26b,
+                   llama3.1:8b-instruct-q4_K_M, nomic-embed-text
+```
+
+The daemon serves the resident always-hot assistant (qwen3:8b by default,
+--model to switch; gemma4:26b responds when called). /bundle reports the live
+selector output for this host plus which model actually serves chat. The
+selector-chosen 80B capability tier stays [uncertain] and is not pulled inside
+a cron window (memory guard); it is served on an interactive session with
+--model qwen3-next:80b after the pull.
 
 ## Components
 

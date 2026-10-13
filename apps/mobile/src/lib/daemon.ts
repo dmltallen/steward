@@ -6,16 +6,14 @@ export type ChatMessage = {
   text: string;
 };
 
-let nextId = 0;
-const makeId = () => `msg-${Date.now()}-${nextId++}`;
+/** Generate a client-side id only when the daemon reply lacks one. */
+const fallbackId = () => `msg-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
 
 /**
- * Steward daemon client. Today it is a stub: the health check hits the real
- * /health route and the chat call returns a canned local reply so the full
- * composer flow is exercisable in the simulator. The T2 sprint replaces
- * sendChat with the real daemon endpoint; the *.tsx screens do not change.
- *
- * Daemon URL comes from config (env EXPO_PUBLIC_STEWARD_DAEMON_URL).
+ * Steward daemon client. Talks to the real local daemon in
+ * src/steward/server/daemon.py (fixed port from config). The daemon fronts the
+ * Ollama backend, so chat replies here are real model output that never leaves
+ * this device or network. The *.tsx screens do not depend on this file's guts.
  */
 export async function pingDaemon(): Promise<boolean> {
   try {
@@ -32,16 +30,26 @@ export async function sendChat(
   history: ChatMessage[],
   text: string,
 ): Promise<ChatMessage> {
-  // STUB: replaced by the daemon chat endpoint in T2. Kept local and honest
-  // so no one mistakes it for a real model response.
-  await new Promise((resolve) => setTimeout(resolve, 700));
-  const replyCount = history.filter((m) => m.role === 'user').length;
+  const res = await fetch(`${config.daemonUrl}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages: history, text }),
+    signal: AbortSignal.timeout(120000),
+  });
+  if (!res.ok) {
+    let detail = `${res.status}`;
+    try {
+      const err = await res.json();
+      if (err && typeof err.error === 'string') detail = err.error;
+    } catch {
+      // keep the status code detail
+    }
+    throw new Error(`steward daemon error: ${detail}`);
+  }
+  const data = (await res.json()) as { id?: string; role: string; text: string };
   return {
-    id: makeId(),
-    role: 'assistant',
-    text:
-      replyCount > 1
-        ? `Local stub reply (${replyCount} user messages so far). The chat screen is wired through the daemon client at ${config.daemonUrl}; T2 will connect a real model on your network.`
-        : `Stub reply from the Steward daemon client at ${config.daemonUrl}. Nothing left this device: your assistant runs on hardware you own, with no subscription. T2 wires the real model here.`,
+    id: typeof data.id === 'string' && data.id ? data.id : fallbackId(),
+    role: data.role === 'user' ? 'user' : 'assistant',
+    text: data.text,
   };
 }
