@@ -1,0 +1,10 @@
+# vLLM bench | model=Qwen/Qwen3-4B max_tokens=200
+{"label": "cold-short", "model": "Qwen/Qwen3-4B", "max_tokens": 200, "input_tokens": 58, "output_tokens": 36, "ttft_ms": 73.9, "decode_tok_s": 14.95, "total_wall_s": 2.48}
+{"label": "warm-short-0", "model": "Qwen/Qwen3-4B", "max_tokens": 200, "input_tokens": 58, "output_tokens": 36, "ttft_ms": 131.8, "decode_tok_s": 14.9, "total_wall_s": 2.55}
+{"label": "warm-short-1", "model": "Qwen/Qwen3-4B", "max_tokens": 200, "input_tokens": 58, "output_tokens": 36, "ttft_ms": 132.9, "decode_tok_s": 14.92, "total_wall_s": 2.55}
+{"label": "warm-short-2", "model": "Qwen/Qwen3-4B", "max_tokens": 200, "input_tokens": 58, "output_tokens": 36, "ttft_ms": 137.7, "decode_tok_s": 15.02, "total_wall_s": 2.53}
+{"label": "cold2-long", "model": "Qwen/Qwen3-4B", "max_tokens": 200, "input_tokens": 580, "output_tokens": 125, "ttft_ms": 128.6, "decode_tok_s": 14.67, "total_wall_s": 8.65}
+{"label": "warm-long-0", "model": "Qwen/Qwen3-4B", "max_tokens": 200, "input_tokens": 580, "output_tokens": 125, "ttft_ms": 131.6, "decode_tok_s": 14.54, "total_wall_s": 8.73}
+{"label": "warm-long-1", "model": "Qwen/Qwen3-4B", "max_tokens": 200, "input_tokens": 580, "output_tokens": 125, "ttft_ms": 141.5, "decode_tok_s": 14.54, "total_wall_s": 8.74}
+{"label": "warm-long-2", "model": "Qwen/Qwen3-4B", "max_tokens": 200, "input_tokens": 580, "output_tokens": 125, "ttft_ms": 153.6, "decode_tok_s": 14.54, "total_wall_s": 8.75}
+# SUMMARY: {"model": "Qwen/Qwen3-4B", "ttft_ms_cold_short": 73.9, "ttft_ms_warm_short_avg": 134.13, "decode_tok_s_short_warm_avg": 14.95, "ttft_ms_warm_long_avg": 142.23, "decode_tok_s_long_warm_avg": 14.54, "input_tokens_short": 58, "input_tokens_long": 580, "output_tokens": 36}

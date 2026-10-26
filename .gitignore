@@ -9,3 +9,5 @@ build/
 .agents/
 notes/
 *.db
+bench/.vllm-venv/
+bench/.hf-cache/

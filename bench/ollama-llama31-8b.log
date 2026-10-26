@@ -1,0 +1,17 @@
+# Ollama bench | model=llama3.1:8b-instruct-q4_K_M num_ctx=8192 num_predict=200 | ollama ver via /api/version
+# rss_ollama_served_kB_before: 52164
+# COLD short
+{"request_id": "8cf36d3b", "label": "cold-short", "model": "llama3.1:8b-instruct-q4_K_M", "num_ctx": 8192, "num_predict": 200, "input_tokens": 56, "output_tokens": 35, "load_s": 3.863376954, "ttft_ms": 3978.2, "decode_tok_s": 21.62, "prefill_tok_s": 510.93, "total_wall_s": 5.6}
+# WARM short x3
+{"request_id": "c167761f", "label": "warm-short-0", "model": "llama3.1:8b-instruct-q4_K_M", "num_ctx": 8192, "num_predict": 200, "input_tokens": 56, "output_tokens": 35, "load_s": 0.000970588, "ttft_ms": 60.1, "decode_tok_s": 22.29, "prefill_tok_s": 1070.05, "total_wall_s": 1.63}
+{"request_id": "85d412e7", "label": "warm-short-1", "model": "llama3.1:8b-instruct-q4_K_M", "num_ctx": 8192, "num_predict": 200, "input_tokens": 56, "output_tokens": 35, "load_s": 0.00142737, "ttft_ms": 64.0, "decode_tok_s": 22.42, "prefill_tok_s": 1025.62, "total_wall_s": 1.63}
+{"request_id": "f723a6bf", "label": "warm-short-2", "model": "llama3.1:8b-instruct-q4_K_M", "num_ctx": 8192, "num_predict": 200, "input_tokens": 56, "output_tokens": 35, "load_s": 0.001616457, "ttft_ms": 65.7, "decode_tok_s": 22.25, "prefill_tok_s": 934.77, "total_wall_s": 1.64}
+# COLD2 long (unload first)
+{"request_id": "d6b3509e", "label": "cold2-long", "model": "llama3.1:8b-instruct-q4_K_M", "num_ctx": 8192, "num_predict": 200, "input_tokens": 578, "output_tokens": 160, "load_s": 4.771062439, "ttft_ms": 5139.3, "decode_tok_s": 21.64, "prefill_tok_s": 1594.32, "total_wall_s": 12.54}
+# WARM long x3
+{"request_id": "3d1b1853", "label": "warm-long-0", "model": "llama3.1:8b-instruct-q4_K_M", "num_ctx": 8192, "num_predict": 200, "input_tokens": 578, "output_tokens": 160, "load_s": 0.001230283, "ttft_ms": 55.8, "decode_tok_s": 21.66, "prefill_tok_s": 11339.34, "total_wall_s": 7.45}
+{"request_id": "a74f8e46", "label": "warm-long-1", "model": "llama3.1:8b-instruct-q4_K_M", "num_ctx": 8192, "num_predict": 200, "input_tokens": 578, "output_tokens": 160, "load_s": 0.00143369, "ttft_ms": 68.4, "decode_tok_s": 21.43, "prefill_tok_s": 9685.8, "total_wall_s": 7.53}
+{"request_id": "d555e480", "label": "warm-long-2", "model": "llama3.1:8b-instruct-q4_K_M", "num_ctx": 8192, "num_predict": 200, "input_tokens": 578, "output_tokens": 160, "load_s": 0.001211114, "ttft_ms": 57.5, "decode_tok_s": 21.56, "prefill_tok_s": 11106.63, "total_wall_s": 7.48}
+# /api/ps while resident: {"name": "llama3.1:8b-instruct-q4_K_M", "model": "llama3.1:8b-instruct-q4_K_M", "size": 5934426357, "digest": "46e0c10c039e019119339687c3c1757cc81b9da49709a3b3924863ba87ca666e", "details": {"parent_model": "", "format": "gguf", "family": "llama", "families": ["llama"], "parameter_size": "8.0B", "quantization_level": "Q4_K_M"}, "expires_at": "2026-10-26T15:25:13.214764941-07:00", "size_vram": 5934426357, "context_length": 8192}
+# rss_ollama_served_kB_after: 70380
+# SUMMARY: {"model": "llama3.1:8b-instruct-q4_K_M", "num_ctx": 8192, "load_s_cold": 3.863376954, "ttft_ms_cold_short": 3978.2, "ttft_ms_warm_short_avg": 63.27, "decode_tok_s_short_warm_avg": 22.32, "ttft_ms_warm_long_avg": 60.57, "decode_tok_s_long_warm_avg": 21.55, "prefill_tok_s_short_cold": 510.93, "input_tokens_short": 56, "input_tokens_long": 578, "output_tokens": 35}

@@ -1,6 +1,6 @@
 # Steward Architecture
 
-**Version:** 1.2, 2026-10-13 (T2: running topology documented, daemon live on U1)
+**Version:** 1.3, 2026-10-26 (v1.5: vLLM benchmarked on U1 - the last open question in the serving-backend decision is answered; Ollama stays v1)
 
 ## Running topology (T2, live on U1 2026-10-13)
 
@@ -83,7 +83,7 @@ a cron window (memory guard); it is served on an interactive session with
 - Remote access is end-to-end encrypted via the mesh; LAN pairing uses QR
   secrets, not open discovery.
 
-## Serving backend decision (CLOSED, benchmarked on U1/GB10 2026-10-11)
+## Serving backend decision (CLOSED - Ollama v1 2026-10-11, vLLM branch benchmarked and deferred 2026-10-26)
 
 Decision: **Ollama** is the v1 serving backend, wrapped behind one internal
 interface (runtime.py) so it can later be swapped for vLLM on halo-class pools
@@ -115,9 +115,37 @@ no measured row. Estimated 20-45 tok/s optimistic per catalog (models.py),
 Marked [uncertain], never served on the 24 GB class. Defer the measured 80B
 run to an interactive session (T2 covers end-to-end serving on U1).
 
-vLLM not benchmarked: source build not permitted in cron workers, and a
-large container image pull is out of scope for a cron window; deferred to an
-interactive session. The internal runtime interface keeps the swap cheap.
+**vLLM benchmarked 2026-10-26 (interactive session, U1/GB10, sm_121).** The
+earlier deferral is closed. Findings, full method and raw rows in
+`bench/BENCHMARK-2026-10-26.md` + `bench/results-2026-10-26.json`:
+
+- Platform question answered: vLLM 0.32 **installs and runs on aarch64/sm_121**
+  from stock PyPI wheels (`uv pip install vllm`, torch 2.13.0+cu130 sees the
+  GB10). The docs previously assumed this might not be possible.
+- Same prompts, same client-side timing, temperature 0, 8K context both sides:
+
+  | metric | Ollama `qwen3:8b` Q4 | vLLM `Qwen3-4B` bf16 |
+  |---|---|---|
+  | cold load / server up | 3.9 s | 357 s (Triton JIT for sm_121) |
+  | warm TTFT short / long | 31 / 32 ms | 134 / 142 ms |
+  | decode short / long | 41.5 / 38.8 tok/s | 15.0 / 14.5 tok/s |
+  | resident memory | 6.0 GB | 38-39 GiB pre-reserved |
+
+  The 4B-vs-8B and bf16-vs-Q4 choices both bias *against* vLLM, so the gap is
+  not a model-size artifact.
+- Why it is not adopted: three failed starts recorded, all from vLLM assuming a
+  dedicated memory pool on a shared unified box (utilization gate, memory
+  profile abort when a co-tenant evicts mid-profile, FlashInfer JIT needing
+  ninja with no prebuilt sm_121 cubin). Add the 6-minute first boot and it is
+  not a backend that can co-tenant with comfyui/Ollama on this host.
+- Consequence: **Ollama stays the v1 backend**; vLLM is the documented future
+  option for a *dedicated* halo-class pool, reached through the same
+  `runtime.py` seam with no selector or client change (both expose a single-port
+  OpenAI-compatible API). Revisit bar: a non-co-tenant unit, warm Triton cache,
+  `--enforce-eager` off, same weights as the Ollama side.
+- Side finding worth a selector note: `llama3.1:8b-instruct-q4_K_M` measured
+  22.3 tok/s here versus 46 tok/s in the Oct 11 run. If the selector floor ever
+  gates on llama3.1, re-measure before trusting either figure.
 
 Supporting decision: use the localhost hostname form for local API tests
 (raw-IP curl is blocked by the local security scan; git to github.com and

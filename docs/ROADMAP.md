@@ -27,6 +27,8 @@
 ## v1.0 Launch
 
 - Class C power tier (GB10 twins, Strix Halo, Mac unified pools).
+- Dedicated-tower backend option: vLLM on a halo-class pool that does not
+  co-tenant (benchmarked 2026-10-26, bench/BENCHMARK-2026-10-26.md).
 - OTA model catalog refresh and re-selection.
 - Optional upgrade plan and first paid feature pack (browser agent).
 - App Store submission for the phone client (assessed; installer ships first).

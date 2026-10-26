@@ -1,0 +1,469 @@
+{
+  "benchmark_date": "2026-10-26",
+  "environment": {
+    "host": "U1 NVIDIA GB10 (DGX Spark class)",
+    "arch": "aarch64",
+    "cuda": "13.0",
+    "driver": "580.178.04",
+    "compute_capability": "sm_121",
+    "unified_mem_gb": 121.6,
+    "python": "3.12.3 (vllm venv)",
+    "tool": "uv 0.12.17",
+    "ollama_version": "0.34.0",
+    "ollama_bin": "/home/user/ollama-local/bin/ollama serve (pid 2046)",
+    "vllm_version": "0.32.0",
+    "torch": "2.13.0+cu130 (arch-specific PyPI wheel, CUDA-13 build)",
+    "vllm_cmd": "vllm serve Qwen/Qwen3-4B --port 8001 --max-model-len 8192 --gpu-memory-utilization 0.32 --trust-remote-code (VLLM_DISABLED_KERNELS=flashinfer, CUDA_HOME set, ninja installed)",
+    "co_tenant_gpu_at_test_time": {
+      "comfyui_16671_MiB": true,
+      "ollama_llama_server": "0-26.9 GiB (gemma4:26b eviction churn)",
+      "gemma4_26b_during_vllm": true
+    },
+    "method": "same prompts both backends: short=58/56 input tok, long=580/578 input tok; temperature=0, max_tokens=200 (ollama num_predict=200), num_ctx / max-model-len = 8192. TTFT = client wall-clock to first streamed token. decode tok/s = output_tokens/(wall_total - TTFT) for vLLM; Ollama eval_count/eval_duration from /api/generate done-chunk metrics. cold = first inference with model unloaded / server freshly started."
+  },
+  "vllm_install_attempts_errors": [
+    {
+      "stage": "vllm serve launch #1",
+      "error": "ValueError: Free memory on device cuda:0 (44.47/121.63 GiB) on startup is less than desired GPU memory utilization (0.5, 60.81 GiB). Decrease GPU memory utilization or reduce GPU memory used by other processes.",
+      "cause": "gpu-memory-utilization 0.5 pre-reservation (60.81 GiB) > 44.47 GiB free with comfyui+ollama co-tenants"
+    },
+    {
+      "stage": "vllm serve launch #2",
+      "error": "AssertionError: Error in memory profiling. Initial free memory 44.39 GiB, current free memory 52.95 GiB. This happens when other processes sharing the same container release GPU memory while vLLM is profiling during initialization.",
+      "cause": "Ollama evicted llama3.1:8b during vLLM memory profiling, freeing 8.5 GiB mid-profile; vLLM asserts free-memory stability"
+    },
+    {
+      "stage": "vllm serve launch #3",
+      "error": "FileNotFoundError: [Errno 2] No such file or directory: 'ninja' (flashinfer/jit/core.py run_ninja) ",
+      "cause": "FlashInfer JIT compile of sm_121 kernels (no prebuilt cubin in pip wheel) needs ninja; fixed by `uv pip install ninja`, CUDA_HOME=/usr/local/cuda, VLLM_DISABLED_KERNELS=flashinfer"
+    }
+  ],
+  "runs": {
+    "ollama_qwen3_8b": [
+      {
+        "request_id": "b391592d",
+        "label": "cold-short",
+        "model": "qwen3:8b",
+        "num_ctx": 8192,
+        "num_predict": 200,
+        "input_tokens": 56,
+        "output_tokens": 200,
+        "load_s": 3.922820402,
+        "ttft_ms": 4055.4,
+        "decode_tok_s": 41.7,
+        "prefill_tok_s": 435.58,
+        "total_wall_s": 8.85
+      },
+      {
+        "request_id": "4373f88b",
+        "label": "warm-short-0",
+        "model": "qwen3:8b",
+        "num_ctx": 8192,
+        "num_predict": 200,
+        "input_tokens": 56,
+        "output_tokens": 200,
+        "load_s": 0.000570109,
+        "ttft_ms": 38.0,
+        "decode_tok_s": 41.21,
+        "prefill_tok_s": 2298.76,
+        "total_wall_s": 4.89
+      },
+      {
+        "request_id": "5d8a7acb",
+        "label": "warm-short-1",
+        "model": "qwen3:8b",
+        "num_ctx": 8192,
+        "num_predict": 200,
+        "input_tokens": 56,
+        "output_tokens": 200,
+        "load_s": 0.000561838,
+        "ttft_ms": 26.8,
+        "decode_tok_s": 41.16,
+        "prefill_tok_s": 2325.39,
+        "total_wall_s": 4.89
+      },
+      {
+        "request_id": "de4cf6db",
+        "label": "warm-short-2",
+        "model": "qwen3:8b",
+        "num_ctx": 8192,
+        "num_predict": 200,
+        "input_tokens": 56,
+        "output_tokens": 200,
+        "load_s": 0.000579341,
+        "ttft_ms": 29.1,
+        "decode_tok_s": 42.15,
+        "prefill_tok_s": 2247.73,
+        "total_wall_s": 4.77
+      },
+      {
+        "request_id": "f0c257a4",
+        "label": "cold2-long",
+        "model": "qwen3:8b",
+        "num_ctx": 8192,
+        "num_predict": 200,
+        "input_tokens": 578,
+        "output_tokens": 200,
+        "load_s": 4.188853507,
+        "ttft_ms": 4516.1,
+        "decode_tok_s": 40.25,
+        "prefill_tok_s": 1796.36,
+        "total_wall_s": 9.49
+      },
+      {
+        "request_id": "3e8e4fdb",
+        "label": "warm-long-0",
+        "model": "qwen3:8b",
+        "num_ctx": 8192,
+        "num_predict": 200,
+        "input_tokens": 578,
+        "output_tokens": 200,
+        "load_s": 0.000826573,
+        "ttft_ms": 31.6,
+        "decode_tok_s": 39.11,
+        "prefill_tok_s": 22142.2,
+        "total_wall_s": 5.15
+      },
+      {
+        "request_id": "857abac6",
+        "label": "warm-long-1",
+        "model": "qwen3:8b",
+        "num_ctx": 8192,
+        "num_predict": 200,
+        "input_tokens": 578,
+        "output_tokens": 200,
+        "load_s": 0.000637053,
+        "ttft_ms": 33.4,
+        "decode_tok_s": 38.96,
+        "prefill_tok_s": 20593.58,
+        "total_wall_s": 5.17
+      },
+      {
+        "request_id": "b471607d",
+        "label": "warm-long-2",
+        "model": "qwen3:8b",
+        "num_ctx": 8192,
+        "num_predict": 200,
+        "input_tokens": 578,
+        "output_tokens": 200,
+        "load_s": 0.001219659,
+        "ttft_ms": 31.2,
+        "decode_tok_s": 38.25,
+        "prefill_tok_s": 21809.67,
+        "total_wall_s": 5.26
+      },
+      [
+        "SUMMARY",
+        {
+          "model": "qwen3:8b",
+          "num_ctx": 8192,
+          "load_s_cold": 3.922820402,
+          "ttft_ms_cold_short": 4055.4,
+          "ttft_ms_warm_short_avg": 31.3,
+          "decode_tok_s_short_warm_avg": 41.51,
+          "ttft_ms_warm_long_avg": 32.07,
+          "decode_tok_s_long_warm_avg": 38.77,
+          "prefill_tok_s_short_cold": 435.58,
+          "input_tokens_short": 56,
+          "input_tokens_long": 578,
+          "output_tokens": 200
+        }
+      ]
+    ],
+    "ollama_llama31_8b": [
+      {
+        "request_id": "8cf36d3b",
+        "label": "cold-short",
+        "model": "llama3.1:8b-instruct-q4_K_M",
+        "num_ctx": 8192,
+        "num_predict": 200,
+        "input_tokens": 56,
+        "output_tokens": 35,
+        "load_s": 3.863376954,
+        "ttft_ms": 3978.2,
+        "decode_tok_s": 21.62,
+        "prefill_tok_s": 510.93,
+        "total_wall_s": 5.6
+      },
+      {
+        "request_id": "c167761f",
+        "label": "warm-short-0",
+        "model": "llama3.1:8b-instruct-q4_K_M",
+        "num_ctx": 8192,
+        "num_predict": 200,
+        "input_tokens": 56,
+        "output_tokens": 35,
+        "load_s": 0.000970588,
+        "ttft_ms": 60.1,
+        "decode_tok_s": 22.29,
+        "prefill_tok_s": 1070.05,
+        "total_wall_s": 1.63
+      },
+      {
+        "request_id": "85d412e7",
+        "label": "warm-short-1",
+        "model": "llama3.1:8b-instruct-q4_K_M",
+        "num_ctx": 8192,
+        "num_predict": 200,
+        "input_tokens": 56,
+        "output_tokens": 35,
+        "load_s": 0.00142737,
+        "ttft_ms": 64.0,
+        "decode_tok_s": 22.42,
+        "prefill_tok_s": 1025.62,
+        "total_wall_s": 1.63
+      },
+      {
+        "request_id": "f723a6bf",
+        "label": "warm-short-2",
+        "model": "llama3.1:8b-instruct-q4_K_M",
+        "num_ctx": 8192,
+        "num_predict": 200,
+        "input_tokens": 56,
+        "output_tokens": 35,
+        "load_s": 0.001616457,
+        "ttft_ms": 65.7,
+        "decode_tok_s": 22.25,
+        "prefill_tok_s": 934.77,
+        "total_wall_s": 1.64
+      },
+      {
+        "request_id": "d6b3509e",
+        "label": "cold2-long",
+        "model": "llama3.1:8b-instruct-q4_K_M",
+        "num_ctx": 8192,
+        "num_predict": 200,
+        "input_tokens": 578,
+        "output_tokens": 160,
+        "load_s": 4.771062439,
+        "ttft_ms": 5139.3,
+        "decode_tok_s": 21.64,
+        "prefill_tok_s": 1594.32,
+        "total_wall_s": 12.54
+      },
+      {
+        "request_id": "3d1b1853",
+        "label": "warm-long-0",
+        "model": "llama3.1:8b-instruct-q4_K_M",
+        "num_ctx": 8192,
+        "num_predict": 200,
+        "input_tokens": 578,
+        "output_tokens": 160,
+        "load_s": 0.001230283,
+        "ttft_ms": 55.8,
+        "decode_tok_s": 21.66,
+        "prefill_tok_s": 11339.34,
+        "total_wall_s": 7.45
+      },
+      {
+        "request_id": "a74f8e46",
+        "label": "warm-long-1",
+        "model": "llama3.1:8b-instruct-q4_K_M",
+        "num_ctx": 8192,
+        "num_predict": 200,
+        "input_tokens": 578,
+        "output_tokens": 160,
+        "load_s": 0.00143369,
+        "ttft_ms": 68.4,
+        "decode_tok_s": 21.43,
+        "prefill_tok_s": 9685.8,
+        "total_wall_s": 7.53
+      },
+      {
+        "request_id": "d555e480",
+        "label": "warm-long-2",
+        "model": "llama3.1:8b-instruct-q4_K_M",
+        "num_ctx": 8192,
+        "num_predict": 200,
+        "input_tokens": 578,
+        "output_tokens": 160,
+        "load_s": 0.001211114,
+        "ttft_ms": 57.5,
+        "decode_tok_s": 21.56,
+        "prefill_tok_s": 11106.63,
+        "total_wall_s": 7.48
+      },
+      [
+        "SUMMARY",
+        {
+          "model": "llama3.1:8b-instruct-q4_K_M",
+          "num_ctx": 8192,
+          "load_s_cold": 3.863376954,
+          "ttft_ms_cold_short": 3978.2,
+          "ttft_ms_warm_short_avg": 63.27,
+          "decode_tok_s_short_warm_avg": 22.32,
+          "ttft_ms_warm_long_avg": 60.57,
+          "decode_tok_s_long_warm_avg": 21.55,
+          "prefill_tok_s_short_cold": 510.93,
+          "input_tokens_short": 56,
+          "input_tokens_long": 578,
+          "output_tokens": 35
+        }
+      ]
+    ],
+    "vllm_qwen3_4b": [
+      {
+        "label": "cold-short",
+        "model": "Qwen/Qwen3-4B",
+        "max_tokens": 200,
+        "input_tokens": 58,
+        "output_tokens": 36,
+        "ttft_ms": 73.9,
+        "decode_tok_s": 14.95,
+        "total_wall_s": 2.48
+      },
+      {
+        "label": "warm-short-0",
+        "model": "Qwen/Qwen3-4B",
+        "max_tokens": 200,
+        "input_tokens": 58,
+        "output_tokens": 36,
+        "ttft_ms": 131.8,
+        "decode_tok_s": 14.9,
+        "total_wall_s": 2.55
+      },
+      {
+        "label": "warm-short-1",
+        "model": "Qwen/Qwen3-4B",
+        "max_tokens": 200,
+        "input_tokens": 58,
+        "output_tokens": 36,
+        "ttft_ms": 132.9,
+        "decode_tok_s": 14.92,
+        "total_wall_s": 2.55
+      },
+      {
+        "label": "warm-short-2",
+        "model": "Qwen/Qwen3-4B",
+        "max_tokens": 200,
+        "input_tokens": 58,
+        "output_tokens": 36,
+        "ttft_ms": 137.7,
+        "decode_tok_s": 15.02,
+        "total_wall_s": 2.53
+      },
+      {
+        "label": "cold2-long",
+        "model": "Qwen/Qwen3-4B",
+        "max_tokens": 200,
+        "input_tokens": 580,
+        "output_tokens": 125,
+        "ttft_ms": 128.6,
+        "decode_tok_s": 14.67,
+        "total_wall_s": 8.65
+      },
+      {
+        "label": "warm-long-0",
+        "model": "Qwen/Qwen3-4B",
+        "max_tokens": 200,
+        "input_tokens": 580,
+        "output_tokens": 125,
+        "ttft_ms": 131.6,
+        "decode_tok_s": 14.54,
+        "total_wall_s": 8.73
+      },
+      {
+        "label": "warm-long-1",
+        "model": "Qwen/Qwen3-4B",
+        "max_tokens": 200,
+        "input_tokens": 580,
+        "output_tokens": 125,
+        "ttft_ms": 141.5,
+        "decode_tok_s": 14.54,
+        "total_wall_s": 8.74
+      },
+      {
+        "label": "warm-long-2",
+        "model": "Qwen/Qwen3-4B",
+        "max_tokens": 200,
+        "input_tokens": 580,
+        "output_tokens": 125,
+        "ttft_ms": 153.6,
+        "decode_tok_s": 14.54,
+        "total_wall_s": 8.75
+      },
+      [
+        "SUMMARY",
+        {
+          "model": "Qwen/Qwen3-4B",
+          "ttft_ms_cold_short": 73.9,
+          "ttft_ms_warm_short_avg": 134.13,
+          "decode_tok_s_short_warm_avg": 14.95,
+          "ttft_ms_warm_long_avg": 142.23,
+          "decode_tok_s_long_warm_avg": 14.54,
+          "input_tokens_short": 58,
+          "input_tokens_long": 580,
+          "output_tokens": 36
+        }
+      ]
+    ]
+  },
+  "recommendation": {
+    "decision": "Ollama is the v1 serving backend; vLLM stays a documented seam (runtime.py) for dedicated halo-class pools.",
+    "basis": "Measured on U1/GB10 2026-10-26, same prompts both sides: Ollama qwen3:8b Q4 41.5/38.8 tok/s short/long, 31/32 ms warm TTFT, 3.9 s cold load, 6.0 GB resident. vLLM 0.32 Qwen3-4B bf16 15.0/14.5 tok/s, 134/142 ms warm TTFT, 357 s first-boot to healthy (Triton JIT for sm_121), 38-39 GiB pre-reserved.",
+    "vllm_platform_verdict": "installs and runs on aarch64/sm_121 from stock PyPI wheels (torch 2.13.0+cu130); the blockers are operational, not platform.",
+    "not_adopted_because": [
+      "357 s first boot dominated by kernel JIT (warm-cache second boot not measured)",
+      "pre-reserves 0.32-0.5 of the unified pool at startup and aborts when co-tenants free/claim memory mid-profile (3 failed starts recorded)",
+      "~15 tok/s on a half-size 4B bf16 model while Ollama served 85 tok/s on a 26B at the same time"
+    ],
+    "revisit_when": "a dedicated (non-co-tenant) halo-class unit exists; then re-run bench/bench_vllm.py with the warm Triton cache, --enforce-eager off, higher utilization, and the same weights as the Ollama comparison.",
+    "verified_by": "parent agent 2026-10-26: report and JSON read from disk, 27 measurement rows present, independent Ollama spot-check 41.64 tok/s on qwen3:8b (load 2.8 s) matching the 41.5 reported."
+  },
+  "summary": {
+    "ollama_qwen3_8b_SUMMARY": {
+      "model": "qwen3:8b",
+      "num_ctx": 8192,
+      "load_s_cold": 3.922820402,
+      "ttft_ms_cold_short": 4055.4,
+      "ttft_ms_warm_short_avg": 31.3,
+      "decode_tok_s_short_warm_avg": 41.51,
+      "ttft_ms_warm_long_avg": 32.07,
+      "decode_tok_s_long_warm_avg": 38.77,
+      "prefill_tok_s_short_cold": 435.58,
+      "input_tokens_short": 56,
+      "input_tokens_long": 578,
+      "output_tokens": 200
+    },
+    "ollama_llama31_8b_SUMMARY": {
+      "model": "llama3.1:8b-instruct-q4_K_M",
+      "num_ctx": 8192,
+      "load_s_cold": 3.863376954,
+      "ttft_ms_cold_short": 3978.2,
+      "ttft_ms_warm_short_avg": 63.27,
+      "decode_tok_s_short_warm_avg": 22.32,
+      "ttft_ms_warm_long_avg": 60.57,
+      "decode_tok_s_long_warm_avg": 21.55,
+      "prefill_tok_s_short_cold": 510.93,
+      "input_tokens_short": 56,
+      "input_tokens_long": 578,
+      "output_tokens": 35
+    },
+    "vllm_qwen3_4b_SUMMARY": {
+      "model": "Qwen/Qwen3-4B",
+      "ttft_ms_cold_short": 73.9,
+      "ttft_ms_warm_short_avg": 134.13,
+      "decode_tok_s_short_warm_avg": 14.95,
+      "ttft_ms_warm_long_avg": 142.23,
+      "decode_tok_s_long_warm_avg": 14.54,
+      "input_tokens_short": 58,
+      "input_tokens_long": 580,
+      "output_tokens": 36
+    }
+  },
+  "ollama_memory_api_ps_qwen3_8b_B": 6295440588,
+  "ollama_memory_vram_mib_qwen3_8b": 6249,
+  "ollama_memory_api_ps_llama31_B": 5934426357,
+  "vllm_enginecore_gpu_mib": 39013,
+  "vllm_server_start_to_healthy_s": 357,
+  "ollama_gemma4_26b_single_warm_probe": {
+    "input_tok": 35,
+    "output_tok": 128,
+    "decode_tok_s": 85.08,
+    "load_s": 14.994,
+    "ttft_ms_incl_load": 17074.1
+  },
+  "ollama_openai_compat_v1_models": "OK on :11434/v1/models",
+  "vllm_openai_compat_v1": "OK on :8001/v1",
+  "accepted_caveats": "vLLM measured on Qwen3-4B bf16 (same Qwen3 family, half params of Ollama qwen3:8b) because Qwen3-8B-GGUF-in-vLLM and 16.9GB Qwen3-8B download were skipped inside the time-box; Q4 (Ollama) is bandwidth-cheaper than bf16 (vLLM), so any size/quant bias runs AGAINST vLLM. vLLM runs occurred while gemma4:26b+comfyui were resident; Ollama qwen3 runs occurred earlier with only comfyui resident."
+}

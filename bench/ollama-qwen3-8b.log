@@ -1,0 +1,17 @@
+# Ollama bench | model=qwen3:8b num_ctx=8192 num_predict=200 | ollama ver via /api/version
+# rss_ollama_served_kB_before: 45220
+# COLD short
+{"request_id": "b391592d", "label": "cold-short", "model": "qwen3:8b", "num_ctx": 8192, "num_predict": 200, "input_tokens": 56, "output_tokens": 200, "load_s": 3.922820402, "ttft_ms": 4055.4, "decode_tok_s": 41.7, "prefill_tok_s": 435.58, "total_wall_s": 8.85}
+# WARM short x3
+{"request_id": "4373f88b", "label": "warm-short-0", "model": "qwen3:8b", "num_ctx": 8192, "num_predict": 200, "input_tokens": 56, "output_tokens": 200, "load_s": 0.000570109, "ttft_ms": 38.0, "decode_tok_s": 41.21, "prefill_tok_s": 2298.76, "total_wall_s": 4.89}
+{"request_id": "5d8a7acb", "label": "warm-short-1", "model": "qwen3:8b", "num_ctx": 8192, "num_predict": 200, "input_tokens": 56, "output_tokens": 200, "load_s": 0.000561838, "ttft_ms": 26.8, "decode_tok_s": 41.16, "prefill_tok_s": 2325.39, "total_wall_s": 4.89}
+{"request_id": "de4cf6db", "label": "warm-short-2", "model": "qwen3:8b", "num_ctx": 8192, "num_predict": 200, "input_tokens": 56, "output_tokens": 200, "load_s": 0.000579341, "ttft_ms": 29.1, "decode_tok_s": 42.15, "prefill_tok_s": 2247.73, "total_wall_s": 4.77}
+# COLD2 long (unload first)
+{"request_id": "f0c257a4", "label": "cold2-long", "model": "qwen3:8b", "num_ctx": 8192, "num_predict": 200, "input_tokens": 578, "output_tokens": 200, "load_s": 4.188853507, "ttft_ms": 4516.1, "decode_tok_s": 40.25, "prefill_tok_s": 1796.36, "total_wall_s": 9.49}
+# WARM long x3
+{"request_id": "3e8e4fdb", "label": "warm-long-0", "model": "qwen3:8b", "num_ctx": 8192, "num_predict": 200, "input_tokens": 578, "output_tokens": 200, "load_s": 0.000826573, "ttft_ms": 31.6, "decode_tok_s": 39.11, "prefill_tok_s": 22142.2, "total_wall_s": 5.15}
+{"request_id": "857abac6", "label": "warm-long-1", "model": "qwen3:8b", "num_ctx": 8192, "num_predict": 200, "input_tokens": 578, "output_tokens": 200, "load_s": 0.000637053, "ttft_ms": 33.4, "decode_tok_s": 38.96, "prefill_tok_s": 20593.58, "total_wall_s": 5.17}
+{"request_id": "b471607d", "label": "warm-long-2", "model": "qwen3:8b", "num_ctx": 8192, "num_predict": 200, "input_tokens": 578, "output_tokens": 200, "load_s": 0.001219659, "ttft_ms": 31.2, "decode_tok_s": 38.25, "prefill_tok_s": 21809.67, "total_wall_s": 5.26}
+# /api/ps while resident: {"name": "qwen3:8b", "model": "qwen3:8b", "size": 6295440588, "digest": "500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41", "details": {"parent_model": "", "format": "gguf", "family": "qwen3", "families": ["qwen3"], "parameter_size": "8.2B", "quantization_level": "Q4_K_M"}, "expires_at": "2026-10-26T15:24:26.170543385-07:00", "size_vram": 6295440588, "context_length": 8192}
+# rss_ollama_served_kB_after: 52164
+# SUMMARY: {"model": "qwen3:8b", "num_ctx": 8192, "load_s_cold": 3.922820402, "ttft_ms_cold_short": 4055.4, "ttft_ms_warm_short_avg": 31.3, "decode_tok_s_short_warm_avg": 41.51, "ttft_ms_warm_long_avg": 32.07, "decode_tok_s_long_warm_avg": 38.77, "prefill_tok_s_short_cold": 435.58, "input_tokens_short": 56, "input_tokens_long": 578, "output_tokens": 200}
