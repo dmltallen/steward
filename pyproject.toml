@@ -1,6 +1,6 @@
 [project]
 name = "steward"
-version = "0.1.0"
+version = "0.2.0"
 description = "Steward: the personal AI you own, served on hardware you already have. Auto hardware detection and open-model selection."
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -10,3 +10,4 @@ steward = "steward.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
