@@ -45,6 +45,27 @@ PYTHONPATH=src python3 -m steward.cli plan     # which models will Steward pick?
 PYTHONPATH=src python3 -m pytest tests/        # run the selector tests
 ```
 
+## Installation
+
+Steward installs as a single self-contained binary; no Python or models bundle
+into the package (models are served at runtime by the local Ollama backend).
+Three ways exist:
+
+- Debian package: `make build-deb` produces `dist/steward_<version>_<arch>.deb`
+  installing `/usr/bin/steward` and a systemd user unit
+  (`systemctl --user enable --now steward`).
+- cURL one-liner: `sh -c "$(curl -fsSL <install-script-url>)"` downloads the
+  release asset matching the machine architecture from the gitea release,
+  verifies its sha256 checksum, and installs to `$HOME/.local/bin`.
+- Build from source: `make build-linux` produces the one-file binary at
+  `dist/steward` (native host arch; PyInstaller does not cross-compile).
+  The spec lives at `packaging/pyinstaller.spec`.
+
+Windows (winget manifest template) and macOS (Homebrew cask template) packaging
+exist for dry-run validation only. No Windows or macOS binaries are built on
+this project yet, so those manifests carry placeholder checksums and are
+NOT MEASURED; see `packaging/README.md`.
+
 ## Repo layout
 
 ```
@@ -60,7 +81,14 @@ src/steward/
   detect.py            hardware detection
   models.py            open-model catalog
   selector.py          automatic bundle selection (the no-setup core)
-  cli.py               doctor / plan commands
+  cli.py               doctor / plan / wizard / serve / version commands
+packaging/
+  pyinstaller.spec     one-file binary spec
+  nfpm.yaml            .deb package config (arm64 / amd64)
+  winget/              Windows Package Manager manifest (dry run)
+  homebrew/            macOS cask (dry run)
+scripts/
+  install.sh           cURL installer with checksum verification
 tests/                 selector and detection tests
 ```
 

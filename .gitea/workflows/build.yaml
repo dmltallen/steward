@@ -1,0 +1,62 @@
+# Release build: Linux one-file binary + .deb, uploaded as gitea release assets.
+#
+# Triggers on tag pushes (v*) and manual workflow dispatch. The only CI runner
+# is u1-runner (linux/arm64), so this file intentionally has a single Linux
+# job and never queues a windows-amd64 job.
+name: Release build
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  linux-artifacts:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-slim
+    steps:
+      - name: Install tooling
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq git ca-certificates curl make tar binutils
+          pip install --quiet pyinstaller
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch "${{ github.ref_name }}" \
+            "http://${{ secrets.GITEA_TOKEN }}@github.com/don/steward.git" .
+          git log --oneline -1
+      - name: Build Linux one-file binary
+        run: |
+          make build-linux
+          ./dist/steward version
+          ./dist/steward plan >/dev/null
+      - name: Build deb
+        run: make build-deb
+      - name: Stage release assets with checksums
+        run: |
+          set -eux
+          ARCH=$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
+          ASSET="steward-linux-$ARCH"
+          cp dist/steward "dist/$ASSET"
+          cp scripts/install.sh dist/steward-install.sh
+          for f in "dist/$ASSET" dist/steward-install.sh dist/*.deb; do
+            (cd dist && sha256sum "$(basename "$f")" > "$(basename "$f").sha256")
+          done
+          ls -l dist
+      - name: Upload release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -eux
+          TAG="${{ github.ref_name }}"
+          API="https://github.com/api/v1/repos/don/steward"
+          curl -fsS -X POST -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"tag_name\":\"$TAG\",\"name\":\"$TAG\"}" \
+            "$API/releases" > /tmp/release.json
+          ID=$(python3 -c "import json; print(json.load(open('/tmp/release.json'))['id'])")
+          for f in dist/steward-linux-* dist/*.deb dist/*.sha256; do
+            curl -fsS -X POST -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+              -F "attachment=@$(pwd)/$f" "$API/releases/$ID/assets" >/dev/null
+          done
+          echo "release $TAG id=$ID assets uploaded"

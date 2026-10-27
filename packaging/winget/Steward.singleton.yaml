@@ -1,0 +1,38 @@
+# Steward winget singleton manifest. Dry-run template only, NOT published.
+#
+# NOT MEASURED: this project has no Windows build yet (PyInstaller does not
+# cross-compile and u1-runner is linux/arm64 only), so InstallerUrl and
+# InstallerSha256 below are placeholders. Publishing to the Windows Package
+# Manager community repo requires a Microsoft account, is a manual step done
+# outside this repository, and is NOT MEASURED here. See README.md.
+#
+# To activate: build the installer on a Windows host, fill in the real
+# InstallerUrl and InstallerSha256, then submit via the winget pipeline.
+PackageIdentifier: Steward.Steward
+PackageVersion: 0.2.0
+PackageLocale: en-US
+Publisher: Steward Project
+PackageName: Steward
+PackageUrl: https://github.com/dmltallen/steward
+License: MIT
+LicenseUrl: https://github.com/dmltallen/steward/raw/branch/master/LICENSE
+ShortDescription: Steward, the personal AI you own, served on hardware you already have.
+Tags:
+  - ai
+  - llm
+  - local
+  - assistant
+Installers:
+  - Architecture: x64
+    InstallerType: exe
+    InstallerUrl: https://example.invalid/steward-windows-x64.exe
+    InstallerSha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    InstallerSwitches:
+      Silent: /S
+      SilentWithProgress: /S
+    InstallModes:
+      - silent
+      - silentWithProgress
+    UpgradeBehavior: install
+ManifestType: singleton
+ManifestVersion: 1.9.0

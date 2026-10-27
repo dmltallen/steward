@@ -1,0 +1,25 @@
+# nfpm package config for Steward.
+#
+# Requires: make build-linux first so dist/steward exists.
+# Build either arch by setting the env vars (the Makefile does this for you):
+#   STEWARD_ARCH=arm64 STEWARD_VERSION=0.2.0 nfpm pkg \
+#     --config packaging/nfpm.yaml --packager deb --target dist/
+#
+# The package is depends-free. Configuration is created by the Steward
+# first-run wizard, not by the package, so no config file ships here.
+
+name: steward
+arch: ${STEWARD_ARCH}
+platform: linux
+version: ${STEWARD_VERSION}
+section: utils
+priority: optional
+maintainer: Steward Project (don/steward)
+description: Steward, the personal AI you own, served on hardware you already have.
+homepage: https://github.com/dmltallen/steward
+license: MIT
+contents:
+  - src: dist/steward
+    dst: /usr/bin/steward
+  - src: packaging/systemd/steward.service
+    dst: /usr/lib/systemd/user/steward.service
