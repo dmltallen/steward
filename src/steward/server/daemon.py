@@ -320,6 +320,9 @@ class Handler(BaseHTTPRequestHandler):
     def _route_post(self, parts: list[str], path: str) -> None:
         if path == "/v1/pair":
             self._handle_pair()
+        elif parts[:2] == ["v1", "setup"] and len(parts) == 3:
+            # Web wizard routes (S5): loopback-only, delegate to wizard.py.
+            self._handle_setup(parts[2])
         elif path == "/v1/chat":
             if self._require_auth() is None:
                 return
@@ -431,6 +434,43 @@ class Handler(BaseHTTPRequestHandler):
             "paired": True,
         })
         self.server.on_paired()  # type: ignore[attr-defined]
+
+    # -- web wizard (POST /v1/setup/*) -----------------------------------------
+    #
+    # Delegates to steward.wizard, which owns the resumable state machine. The
+    # routes are loopback-only because they mutate machine state (downloads,
+    # service starts). Contract, one envelope on every route:
+    #   {"ok": bool, "state": str, "done": bool, "message": str,
+    #    "transcript": [str], "plan": {...} | null,
+    #    "download": null | {model, expected_bytes, done_bytes, percent, state},
+    #    "error": null | str}
+    # Actions: plan (read), start (resume or reset), step (run one state),
+    # status (no change), cancel (stop an in-flight download).
+
+    def _handle_setup(self, action: str) -> None:
+        if not self._is_loopback():
+            self._json(403, {"error": "setup routes are loopback-only"})
+            return
+        from steward import wizard as _wizard_mod
+
+        try:
+            if action == "plan":
+                self._json(200, _wizard_mod.setup_plan())
+            elif action == "start":
+                data = self._read_json()
+                resume = bool(data.get("resume", True))
+                self._json(200, _wizard_mod.setup_start(resume=resume))
+            elif action == "step":
+                self._json(200, _wizard_mod.setup_step())
+            elif action == "status":
+                self._json(200, _wizard_mod.setup_status())
+            elif action == "cancel":
+                self._json(200, _wizard_mod.setup_cancel())
+            else:
+                self._json(404, {"error": "unknown setup action",
+                                 "action": action})
+        except Exception as exc:  # noqa: BLE001 - setup failures are a 500 body
+            self._json(500, {"error": str(exc)})
 
     # -- source / summarize ------------------------------------------------------
 
