@@ -19,7 +19,7 @@ jobs:
       - name: Install tooling
         run: |
           apt-get update -qq
-          apt-get install -y -qq git ca-certificates curl make tar
+          apt-get install -y -qq git ca-certificates curl make tar binutils
           pip install --quiet pyinstaller
       - name: Checkout
         run: |
