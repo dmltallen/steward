@@ -1,0 +1,171 @@
+[
+  {
+    "label": "health",
+    "path": "/health",
+    "method": "GET",
+    "status": 200,
+    "seconds": 0.005,
+    "body": "{\"status\": \"ok\", \"backend\": \"system-ollama\", \"ollama_url\": \"http://localhost:11434\", \"model\": \"qwen3:8b\", \"model_resident\": true, \"version\": \"0.2.0\", \"paired\": 0}",
+    "ctype": "application/json"
+  },
+  {
+    "label": "bundle",
+    "path": "/v1/bundle",
+    "method": "GET",
+    "status": 200,
+    "seconds": 0.04,
+    "body": "{\"bundle\": {\"class\": \"extreme\", \"serving_mem_gb\": 121.6, \"capability\": \"qwen3-next:80b\", \"assistant\": \"gemma4:7b\", \"vision\": true, \"capability_est_tok_s\": [20, 45], \"gpu\": \"NVIDIA GB10\"}, \"served_model\": \"qwen3:8b\", \"note\": \"capability tier is resident only when serving holds; the resident assistant model serves chat\"}",
+    "ctype": "application/json"
+  },
+  {
+    "label": "pair code",
+    "path": "/pair/code",
+    "method": "GET",
+    "status": 200,
+    "seconds": 0.001,
+    "body": "{\"code\": \"244606\", \"note\": \"rotates on the next daemon restart; valid for the life of this run\"}",
+    "ctype": "application/json"
+  },
+  {
+    "label": "webapp root",
+    "path": "/",
+    "method": "GET",
+    "status": 200,
+    "seconds": 0.001,
+    "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"color-scheme\" content=\"light dark\">\n<meta name=\"theme-color\" content=\"#0f766e\">\n<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'\">\n<title>Steward</title>\n<link rel=\"icon\" href=\"data:,\">\n<link rel=\"stylesheet\" href=\"/style.css\">\n<script src=\"/app.js\" defer></script>\n</head>\n<body>\n<",
+    "ctype": "text/html; charset=utf-8"
+  },
+  {
+    "label": "webapp style",
+    "path": "/style.css",
+    "method": "GET",
+    "status": 200,
+    "seconds": 0.0,
+    "body": "/* Steward webapp design system.\n * Calm premium: warm neutrals, deep teal accent, large readable type.\n * Light and dark follow the OS preference. Tokens live in :root only.\n * No external fonts, system stack, mobile-first.\n */\n\n:root {\n  /* palette */\n  --accent: #0f766e;\n  --accent-strong: #115e59;\n  --accent-soft: rgba(15, 118, 110, 0.12);\n  --accent-ink: #0b3b38;\n  --bg: #f7f6f3;\n  --surface: #ffffff;\n  --surface-2: #f1efe9;\n  --ink: #1f2933;\n  --ink-soft: #4b5563;\n  --muted: #6b7280;\n  --line: #e5e1d8;\n  --ok: #15803d;\n  --warn: #b45309;\n  --danger: #b91c1c;\n  --focus: #0d9488;\n  --shado",
+    "ctype": "text/css; charset=utf-8"
+  },
+  {
+    "label": "chat without token",
+    "path": "/v1/chat",
+    "method": "POST",
+    "status": 401,
+    "seconds": 0.0,
+    "body": "{\"error\": \"unauthorized\"}",
+    "ctype": "application/json"
+  },
+  {
+    "label": "conversations without token",
+    "path": "/v1/conversations",
+    "method": "GET",
+    "status": 401,
+    "seconds": 0.0,
+    "body": "{\"error\": \"unauthorized\"}",
+    "ctype": "application/json"
+  },
+  {
+    "label": "files without token",
+    "path": "/v1/files",
+    "method": "GET",
+    "status": 401,
+    "seconds": 0.0,
+    "body": "{\"error\": \"unauthorized\"}",
+    "ctype": "application/json"
+  },
+  {
+    "label": "pair with code",
+    "path": "/v1/pair",
+    "method": "POST",
+    "status": 200,
+    "seconds": 0.0,
+    "body": "{\"token\": \"sv1.1795707031.ZHJpdmUtbGFwdG9w.KKaZgJIaUjTm.KY3uDleLf-bl7MUJZEfKJ0sdk-a8vXl7_2EtIO-llXk\", \"expires_at\": \"2026-11-26T15:30:31Z\", \"device\": \"drive-laptop\", \"paired\": true}",
+    "ctype": "application/json"
+  },
+  {
+    "label": "chat streaming",
+    "status": 200,
+    "seconds": 19.013,
+    "deltas": 34,
+    "first_delta_s": 17.41
+  },
+  {
+    "label": "conversations with token",
+    "path": "/v1/conversations",
+    "method": "GET",
+    "status": 200,
+    "seconds": 0.003,
+    "body": "{\"conversations\": []}",
+    "ctype": "application/json"
+  },
+  {
+    "label": "files status",
+    "path": "/v1/files",
+    "method": "GET",
+    "status": 200,
+    "seconds": 0.001,
+    "body": "{\"folders\": [], \"index\": {\"db_path\": \"/tmp/sd-drive/home/user/index.db\", \"documents\": 0, \"chunks\": 0, \"vector_dim\": 0, \"db_size_bytes\": 0, \"indexed_at\": null}, \"data_dir\": \"/tmp/sd-drive/home\"}",
+    "ctype": "application/json"
+  },
+  {
+    "label": "files add folder",
+    "path": "/v1/files/folders",
+    "method": "POST",
+    "status": 201,
+    "seconds": 0.007,
+    "body": "{\"folders\": [\"/tmp/sd-drive/notes\"]}",
+    "ctype": "application/json"
+  },
+  {
+    "label": "files index",
+    "path": "/v1/files/index",
+    "method": "POST",
+    "status": 200,
+    "seconds": 0.093,
+    "body": "{\"summary\": {\"indexed\": 2, \"reindexed\": 0, \"skipped\": 0, \"pruned\": 0, \"failed\": 0, \"files_seen\": 2, \"roots\": [\"/tmp/sd-drive/notes\"], \"last_error\": null, \"documents\": 2, \"chunks\": 4, \"seconds\": 0.084}, \"index\": {\"db_path\": \"/tmp/sd-drive/home/user/index.db\", \"documents\": 2, \"chunks\": 4, \"vector_dim\": 768, \"db_size_bytes\": 49152, \"indexed_at\": 1793115050.8317285}}",
+    "ctype": "application/json"
+  },
+  {
+    "label": "files search",
+    "path": "/v1/files/search",
+    "method": "POST",
+    "status": 200,
+    "seconds": 0.04,
+    "body": "{\"query\": \"when is the flight brief\", \"hits\": [{\"path\": \"/tmp/sd-drive/notes/calendar.md\", \"ordinal\": 1, \"offset\": 13, \"score\": 0.621071, \"snippet\": \"- Tuesday 10:00 dentist - Thursday 14:00 flight brief with VR-61 - Friday submit the test drive friction log\", \"text\": \"- Tuesday 10:00 dentist\\n- Thursday 14:00 flight brief with VR-61\\n- Friday submit the test drive friction log\\n\", \"chunk_id\": \"9915eed4adca5c9ab2ffdabb\"}, {\"path\": \"/tmp/sd-drive/notes/2026-10-27-launch-notes.md\", \"ordinal\": 0, \"offset\": 0, \"score\": 0.535879, \"snippet\": \"# Launch notes\", \"text\": \"# Launch notes\\n\", \"chunk_id\": ",
+    "ctype": "application/json"
+  },
+  {
+    "label": "briefs today",
+    "path": "/v1/briefs/today",
+    "method": "GET",
+    "status": 200,
+    "seconds": 0.003,
+    "body": "{\"today\": \"\", \"brief\": null}",
+    "ctype": "application/json"
+  },
+  {
+    "label": "briefs list",
+    "path": "/v1/briefs",
+    "method": "GET",
+    "status": 200,
+    "seconds": 0.002,
+    "body": "{\"briefs\": []}",
+    "ctype": "application/json"
+  },
+  {
+    "label": "approvals list",
+    "path": "/v1/approvals",
+    "method": "GET",
+    "status": 200,
+    "seconds": 0.001,
+    "body": "{\"approvals\": [], \"pending\": 0}",
+    "ctype": "application/json"
+  },
+  {
+    "label": "doctor bundle",
+    "path": "/doctor/bundle?format=json",
+    "method": "GET",
+    "status": 200,
+    "seconds": 0.069,
+    "body": "{\"ok\": true, \"bundle\": \"/tmp/sd-drive/home/user/steward-support-20261027-083050.zip\", \"members\": [\"bundle.json\", \"config.redacted.json\", \"index-stats.json\", \"license-state.txt\", \"recent-errors.log\", \"system.txt\", \"versions.txt\"], \"bytes\": 2376}",
+    "ctype": "application/json"
+  }
+]
