@@ -15,6 +15,9 @@
 #   STEWARD_INSTALL_BASE     base URL with <version>/<asset>[.sha256],
 #                            default <instance>/<repo>/releases/download
 #   STEWARD_PREFIX           install prefix, default $HOME/.local
+#   STEWARD_GITEA_TOKEN      token for a private repository (alias STEWARD_TOKEN).
+#                            Required while the repo is private: anonymous API and
+#                            asset URLs answer 404, not 401.
 #
 set -eu
 
@@ -24,9 +27,26 @@ VERSION=${STEWARD_VERSION:-}
 PREFIX=${STEWARD_PREFIX:-"$HOME/.local"}
 INSTALL_BASE=${STEWARD_INSTALL_BASE:-"$GITEA_INSTANCE/$REPO/releases/download"}
 BINDIR="$PREFIX/bin"
+TOKEN=${STEWARD_GITEA_TOKEN:-${STEWARD_TOKEN:-}}
 
 say() { printf '%s\n' "$*"; }
 die() { say "error: $*" >&2; exit 1; }
+
+# curl with the token when one is configured. Kept as a function so every
+# request in this script carries the same auth (or none, in public mode).
+fetch() {
+  if [ -n "$TOKEN" ]; then
+    curl -H "Authorization: token $TOKEN" "$@"
+  else
+    curl "$@"
+  fi
+}
+
+private_repo_hint() {
+  say "hint: this repository is private, so anonymous URLs answer 404." >&2
+  say "      set STEWARD_GITEA_TOKEN=<gitea token> and run again," >&2
+  say "      or install a release asset directly." >&2
+}
 
 # --- detect architecture --------------------------------------------------
 case "$(uname -m)" in
@@ -45,8 +65,10 @@ esac
 if [ -z "$VERSION" ]; then
   api_url="$GITEA_INSTANCE/api/v1/repos/$REPO/releases/latest"
   say "resolving latest release from $api_url"
-  latest=$(curl -fsSL --max-time 30 "$api_url" 2>/dev/null) || \
-    die "could not query the latest release; set STEWARD_VERSION and retry"
+  if ! latest=$(fetch -fsSL --max-time 30 "$api_url" 2>/dev/null); then
+    if [ -z "$TOKEN" ]; then private_repo_hint; fi
+    die "could not query the latest release; set STEWARD_VERSION (and STEWARD_GITEA_TOKEN for a private repo) and retry"
+  fi
   VERSION=$(printf '%s' "$latest" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
   [ -n "$VERSION" ] || die "could not parse the latest release tag; set STEWARD_VERSION and retry"
 fi
@@ -61,9 +83,15 @@ tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/steward.XXXXXX") || die "mktemp failed"
 trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
 
 say "downloading $URL"
-curl -fsSL --max-time 300 -o "$tmpdir/$ASSET" "$URL" || die "download failed"
+if ! fetch -fsSL --max-time 300 -o "$tmpdir/$ASSET" "$URL"; then
+  if [ -z "$TOKEN" ]; then private_repo_hint; fi
+  die "download failed"
+fi
 say "downloading checksum $SHA_URL"
-curl -fsSL --max-time 60 -o "$tmpdir/$ASSET.sha256" "$SHA_URL" || die "checksum download failed"
+if ! fetch -fsSL --max-time 60 -o "$tmpdir/$ASSET.sha256" "$SHA_URL"; then
+  if [ -z "$TOKEN" ]; then private_repo_hint; fi
+  die "checksum download failed"
+fi
 
 expect=$(awk '{print $1}' "$tmpdir/$ASSET.sha256" | tr -d '[:space:]')
 [ -n "$expect" ] || die "empty checksum from $SHA_URL"

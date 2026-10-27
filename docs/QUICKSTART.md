@@ -26,7 +26,12 @@ On Debian or Ubuntu, install the package and start it as your own user
 service:
 
 ```
-sudo apt install ./steward_1.0.0_amd64.deb
+# Debian and Ubuntu: the package name carries the architecture, and only the
+# architecture you built is published. Check what the release actually has:
+curl -fsSL -H "Authorization: token $STEWARD_GITEA_TOKEN" \
+  https://github.com/api/v1/repos/don/steward/releases/latest \
+  | grep -o 'steward_[^"]*\.deb'
+sudo apt install ./steward_1.0.0_<arch>.deb     # arm64 today; amd64 needs an amd64 build host
 systemctl --user enable --now steward
 ```
 
