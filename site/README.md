@@ -10,6 +10,12 @@ server (example: `python3 -m http.server 8080` from this directory).
 - `style.css` calm palette and type
 - `app.js` variant switching plus the event-logging stub
 
+The page carries the product facts that matter to a buyer as on-page copy,
+kept in step with the repo docs: the computed compatibility verdict and the
+16/40 GB thresholds (docs/COMPATIBILITY.md) and the nothing-leaves-the-box
+privacy claims (docs/PRIVACY.md). If either doc changes a number or a
+claim, update this page in the same change.
+
 ## A/B pricing variants
 
 The page serves two pricing-test variants that differ only in the price:
