@@ -407,3 +407,28 @@ handset, and the Windows and macOS legs that were never built.
    since it changes the chat contract and the approval UX.
 4. Say whether the Windows leg matters before the market plan, which decides
    whether we spend a day on a Windows build host next.
+
+## 9.4 Frozen 1.0.1 re-verification (release id 27)
+
+Everything above was re-run against the rebuilt artifacts, not the source tree.
+
+| Check | Result |
+| --- | --- |
+| Clean install from the v1.0.1 release with a token | 7 s, checksum verified, `steward 1.0.1` |
+| `steward serve --help` in the frozen binary | lists `--host --port --model --source --ollama-url` |
+| systemd user unit, cold start | 522 ms to `/health` 200 |
+| systemd user unit, service restart | 537 ms to `/health` 200, model still resident |
+| `/health` version string | `1.0.1` (was `0.2.0` on the old binary) |
+| first chat token, frozen binary | 0.076 s and 0.111 s across two turns, 1.2 s per turn |
+| deb install in `debian:stable-slim` | installs, `steward 1.0.1`, unit file present |
+| deb removal | clean: binary gone after `dpkg -r` (F12 fixed, md5sums were missing) |
+| release assets | 6: binary, binary sha256, deb, deb sha256, install script, SHA256SUMS |
+
+F12 was found here and fixed in the same pass: the `dpkg-deb` fallback built the
+package without `DEBIAN/md5sums`, so `dpkg -r` left `/usr/bin/steward` behind on
+a machine. The Makefile now generates the manifest and normalises the unit file
+mode to 0644.
+
+Remaining open after this run: **F8** (tools are library-only, unreachable from
+chat), **F3** (no Windows or macOS binary), **F4** (no citations in chat), and
+the OTA check needing a configured `STEWARD_OTA_URL`.

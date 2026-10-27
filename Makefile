@@ -103,6 +103,12 @@ deb-dpkg: build-linux
 		"Maintainer: Steward Project (don/steward)" \
 		"Description: Steward, the personal AI you own, served on hardware you already have." \
 		> build/deb/steward_$(VERSION)_$(ARCH)/DEBIAN/control
+	@# dpkg only removes files it can verify, so a package without md5sums
+	@# uninstalls to a half-empty tree (/usr/bin/steward survived `dpkg -r`
+	@# in the test drive). Generate the manifest the fallback path was missing.
+	@cd build/deb/steward_$(VERSION)_$(ARCH) && \
+		find usr -type f -print0 | xargs -0 md5sum > DEBIAN/md5sums
+	@chmod 0644 build/deb/steward_$(VERSION)_$(ARCH)/usr/lib/systemd/user/steward.service
 	@dpkg-deb --build --root-owner-group \
 		build/deb/steward_$(VERSION)_$(ARCH) dist/ >/dev/null
 
