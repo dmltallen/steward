@@ -11,3 +11,8 @@ notes/
 *.db
 bench/.vllm-venv/
 bench/.hf-cache/
+# Steward vendor signing keys. The private key is generated once with
+# tools/mint_license.py gen-key and must NEVER be committed; the matching
+# public key is embedded in src/steward/license.py.
+.steward-keys/
+*.signing.key

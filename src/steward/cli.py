@@ -6,6 +6,8 @@ Commands:
     steward check     verdict: what this machine can run, in plain English
     steward wizard    first-run setup: detect, plan, print install commands
     steward serve     run the local daemon (delegates to server/daemon.py)
+    steward license   activate a signed perpetual license, print tier status
+    steward ota       signed model-catalog updates: check, apply, status
     steward version   print the package version
 
 The compatibility verdict (compat.py) is computed first and fed to the
@@ -18,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -162,7 +165,105 @@ def _version() -> int:
     return 0
 
 
+def _license_cmd(argv) -> int:
+    from . import license as lic
+    parser = argparse.ArgumentParser(prog="steward license")
+    sub = parser.add_subparsers(dest="license_cmd", required=True)
+    sub.add_parser("status", help="print the active tier and its features")
+    act = sub.add_parser("activate", help="verify and store a signed license file")
+    act.add_argument("file", help="path to the signed license JSON")
+    args = parser.parse_args(argv)
+
+    if args.license_cmd == "activate":
+        try:
+            stored = lic.activate(args.file)
+        except lic.LicenseError as exc:
+            print("refused: %s" % exc)
+            return 1
+        print("activated %s (%s) on this machine" % (stored.id, stored.tier))
+        print("features: " + ", ".join(sorted(stored.features)))
+        if not stored.is_perpetual:
+            print("expires:  %s" % stored.expires)
+        else:
+            print("expires:  never (perpetual)")
+        return 0
+
+    st = lic.status()
+    if st["active"]:
+        info = st["license"]
+        print("license:  active")
+        print("tier:     %s" % st["tier"])
+        print("id:       %s" % info["id"])
+        print("issued:   %s" % info["issued"])
+        print("expires:  %s" % (info["expires"] or "never (perpetual)"))
+    else:
+        print("license:  not active (free tier)")
+        print("reason:   %s" % st["reason"])
+    print("features: %s" % ", ".join(st["features"]))
+    return 0
+
+
+def _ota_cmd(argv) -> int:
+    from . import ota as ota_mod
+    parser = argparse.ArgumentParser(prog="steward ota")
+    sub = parser.add_subparsers(dest="ota_cmd", required=True)
+    sub.add_parser("status", help="active catalog version and selection plan")
+    chk = sub.add_parser("check", help="fetch and verify a signed catalog manifest")
+    chk.add_argument("--manifest", default="", help="local file or URL of the manifest")
+    aply = sub.add_parser("apply", help="apply a signed catalog update with rollback")
+    aply.add_argument("--manifest", default="", help="local file or URL of the manifest")
+    aply.add_argument("--model", default="", help="optional model id for a deeper probe")
+    args = parser.parse_args(argv)
+
+    if args.ota_cmd == "status":
+        st = ota_mod.status()
+        print("catalog:  %s (app %s)" % (st["active_catalog"],
+                                         st["app_version"] or "embedded"))
+        print("models:   %d (%s)" % (st["model_count"], ", ".join(st["models"])))
+        if st["hardware_changed"]:
+            print("hardware: CHANGED since last selection (re-select pending)")
+        if st["plan"]:
+            plan = st["plan"]
+            print("plan:     %s / %s / vision %s" % (
+                plan.get("capability"), plan.get("assistant"),
+                "yes" if plan.get("vision") else "no"))
+        print("updated:  %s" % (st["updated"] or "never"))
+        return 0
+
+    source = args.manifest or os.environ.get("STEWARD_OTA_URL", "")
+    if not source:
+        print("no update source: pass --manifest or set STEWARD_OTA_URL")
+        return 1
+
+    if args.ota_cmd == "check":
+        info = ota_mod.check_for_update(source)
+        print("update %savailable (current %s -> %s, %d models, released %s)" % (
+            "" if info["available"] else "NOT ",
+            info["current_version"], info["latest_version"],
+            info["model_count"], info["released"] or "unknown"))
+        return 0
+
+    doc = ota_mod.fetch_document(source)
+    result = ota_mod.apply_update(doc, ota_mod.backend_health_probe(args.model))
+    if result["applied"]:
+        print("applied catalog %s (%d models)" % (result["version"], len(result["models"])))
+        plan = result.get("plan") or {}
+        print("plan:     %s / %s / vision %s" % (
+            plan.get("capability"), plan.get("assistant"),
+            "yes" if plan.get("vision") else "no"))
+        return 0
+    print("NOT applied: %s" % (result.get("reason") or "unknown"))
+    return 1
+
+
 def main(argv=None) -> int:
+    # license and ota get their own nested parsers; route them before the
+    # outer argparse, which would reject their subcommand tokens.
+    tokens = sys.argv[1:] if argv is None else list(argv)
+    if tokens and tokens[0] in ("license", "ota"):
+        handler = _license_cmd if tokens[0] == "license" else _ota_cmd
+        return handler(tokens[1:])
+
     parser = argparse.ArgumentParser(prog="steward")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("doctor", help="hardware, bundle, backend mode, model, data dir")
@@ -171,6 +272,8 @@ def main(argv=None) -> int:
     sub.add_parser("wizard", help="first-run setup wizard")
     sub.add_parser("serve", help="run the local daemon (src/steward/server/daemon.py)")
     sub.add_parser("version", help="print the package version")
+    sub.add_parser("license", help="perpetual license: activate, status")
+    sub.add_parser("ota", help="signed catalog updates: check, apply, status")
     args = parser.parse_args(argv)
     if args.cmd == "doctor":
         return _doctor()
