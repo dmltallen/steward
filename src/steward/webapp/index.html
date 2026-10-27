@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0f766e">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'">
+<title>Steward</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">Steward</span>
+    </div>
+    <button id="nav-toggle" class="nav-toggle" type="button" aria-controls="nav" aria-expanded="false">Menu</button>
+  </header>
+
+  <nav id="nav" class="rail" aria-label="Screens">
+    <a href="#chat" data-screen-link="chat">Chat</a>
+    <a href="#files" data-screen-link="files">Files</a>
+    <a href="#brief" data-screen-link="brief">Brief</a>
+    <a href="#settings" data-screen-link="settings">Settings</a>
+    <a href="#pair" data-screen-link="pair" id="nav-pair" hidden>Pair</a>
+    <div class="rail-status" id="rail-status"></div>
+  </nav>
+
+  <main class="content">
+    <noscript><p class="card note">Steward needs JavaScript to run. This page is safe; every bit stays on the machine.</p></noscript>
+
+    <section id="screen-chat" class="screen chat-screen" hidden>
+      <aside class="conv-list" aria-label="Conversations">
+        <div class="conv-head">
+          <h2>Conversations</h2>
+          <button id="new-chat" class="btn" type="button">New chat</button>
+        </div>
+        <ul id="conv-list" class="conv-items"></ul>
+      </aside>
+      <div class="chat-pane">
+        <div id="chat-messages" class="messages" role="log" aria-live="polite"></div>
+        <div id="approvals" class="approvals" aria-live="polite"></div>
+        <form id="chat-form" class="composer">
+          <label class="sr-only" for="chat-input">Message Steward</label>
+          <textarea id="chat-input" rows="1" placeholder="Message Steward" aria-label="Message Steward"></textarea>
+          <button type="submit" class="btn primary">Send</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="screen-files" class="screen" hidden>
+      <h1>Files</h1>
+      <p class="lede">Search your own documents. Everything stays on this machine.</p>
+      <div id="index-status" class="card"></div>
+      <div class="card">
+        <h2>Search</h2>
+        <form id="search-form" class="inline-form">
+          <label class="sr-only" for="search-query">Search your files</label>
+          <input id="search-query" type="search" placeholder="Search your files" autocomplete="off" aria-label="Search your files">
+          <button type="submit" class="btn primary">Search</button>
+        </form>
+        <div id="search-results" class="search-results"></div>
+      </div>
+      <div class="card">
+        <h2>Folders</h2>
+        <form id="add-folder" class="inline-form">
+          <label class="sr-only" for="folder-path">Folder to index</label>
+          <input id="folder-path" type="text" placeholder="/full/path/to/notes" autocomplete="off" aria-label="Folder to index">
+          <button type="submit" class="btn">Add folder</button>
+        </form>
+        <ul id="folder-list" class="folder-list"></ul>
+      </div>
+    </section>
+
+    <section id="screen-brief" class="screen" hidden>
+      <h1>Brief</h1>
+      <p class="lede">A short rundown of what is due and what changed.</p>
+      <div class="card">
+        <div class="card-head">
+          <h2 id="brief-title">Today</h2>
+          <button id="brief-generate" class="btn" type="button">Generate now</button>
+        </div>
+        <div id="brief-today" class="brief-body"></div>
+      </div>
+      <div class="card">
+        <h2>History</h2>
+        <ul id="brief-history" class="brief-history"></ul>
+      </div>
+    </section>
+
+    <section id="screen-settings" class="screen" hidden>
+      <h1>Settings</h1>
+      <p class="lede">This machine, this box, your data.</p>
+      <div class="card">
+        <h2>Runtime</h2>
+        <dl id="settings-fields" class="field-list"></dl>
+      </div>
+      <div class="card">
+        <h2>Pair another device</h2>
+        <p class="hint">Scan this with a companion app to find the daemon on your network. The 6 digit pairing code is only ever shown on the host screen.</p>
+        <canvas id="pair-qr" width="200" height="200" role="img" aria-label="Pairing QR code"></canvas>
+        <p id="pair-url" class="mono"></p>
+      </div>
+      <div class="card">
+        <h2>About</h2>
+        <dl id="about-fields" class="field-list"></dl>
+      </div>
+    </section>
+
+    <section id="screen-pair" class="screen" hidden>
+      <h1>Pair this device</h1>
+      <p class="lede">Enter the 6 digit code shown on the Steward host screen.</p>
+      <form id="pair-form" class="card pair-card">
+        <label for="pair-device">Device name</label>
+        <input id="pair-device" type="text" maxlength="64" value="Phone" autocomplete="off">
+        <label for="pair-code">Pairing code</label>
+        <input id="pair-code" type="text" inputmode="numeric" maxlength="6" pattern="[0-9]*" autocomplete="one-time-code" placeholder="000000" aria-label="6 digit pairing code">
+        <button type="submit" class="btn primary">Pair</button>
+        <button id="pair-show-code" type="button" class="btn ghost" hidden>Show code on this device</button>
+        <p id="pair-error" class="error" role="alert"></p>
+      </form>
+      <p class="hint">The pairing code is served to the host computer only. Once paired, Steward works on this device and the token lasts 30 days.</p>
+    </section>
+  </main>
+</div>
+</body>
+</html>
