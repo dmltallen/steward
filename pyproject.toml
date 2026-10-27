@@ -1,11 +1,12 @@
 [project]
 name = "steward"
-version = "0.2.0"
+version = "1.0.0"
 description = "Steward: the personal AI you own, served on hardware you already have. Auto hardware detection and open-model selection."
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
     "zeroconf>=0.131",
+    "cryptography>=42",
 ]
 
 [project.scripts]

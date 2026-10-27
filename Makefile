@@ -35,7 +35,7 @@ endif
 $(PYINSTALLER):
 	python3 -m venv $(VENV)
 	$(PYTHON) -m pip install --quiet --upgrade pip
-	$(PYTHON) -m pip install --quiet pyinstaller
+	$(PYTHON) -m pip install --quiet pyinstaller cryptography
 
 $(NFPM_VENV):
 	@mkdir -p $(VENV)/bin

@@ -19,4 +19,4 @@ jobs:
       - name: Run selector and detect tests
         run: |
           set -o pipefail
-          PYTHONPATH=src uv run --with pytest --no-project python -m pytest tests -q 2>&1 | tail -15
+          PYTHONPATH=src uv run --with pytest --with cryptography --no-project python -m pytest tests -q 2>&1 | tail -15
