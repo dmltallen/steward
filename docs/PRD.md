@@ -1,6 +1,7 @@
 # Steward Product Requirements (PRD)
 
-**Version:** 1.0, 2026-10-10 (initial)
+**Version:** 2.0, 2026-10-26 (scope changed from a certified hardware list
+to computed install-time verdicts; adds the consumer distribution goal)
 
 ## Vision
 
@@ -20,6 +21,17 @@ story Ghost Core sells without the hardware markup.
 3. **The curious power user (tertiary).** Developers who want local models but
    are tired of hand-installing runtimes and juggling quantization.
 
+## Consumer distribution goal
+
+Steward is distributed to consumers directly, not through hardware
+partners or a certified-device program. Anyone who already owns a
+machine in the compatibility classes can install it today: download from
+the self-hosted site or release page, run the wizard, and it works. No
+hardware purchase, no storefront gate, no vendor approval. Distribution
+success is measured by the free-to-paid acceptance run in docs/PRICING.md
+(install and convert, on the buyer's own machine), not by units sold
+through a partner channel.
+
 ## Jobs to be done
 
 - Turn the user's existing hardware into a personal AI in under 15 minutes,
@@ -32,7 +44,8 @@ story Ghost Core sells without the hardware markup.
 ## Hard requirements (v1)
 
 - R1. Detection: identify serving memory class and model family with no user
-  input, with a human-readable `doctor` result.
+  input, compute an install-time verdict (no-fit, lite, full), and report it
+  in human-readable `doctor` and `check` results.
 - R2. Auto-selection: pick an always-hot assistant plus a capability model
   (plus vision where the pool allows) using the memory ladder in
   MODEL-SELECTOR.md; never require the user to choose a model.
@@ -49,12 +62,14 @@ story Ghost Core sells without the hardware markup.
 
 ## Non-goals (v1)
 
-- Selling or designing hardware. Steward runs on certified existing hardware.
+- Selling or designing hardware. Steward runs on whatever a machine can
+  serve on that day, computed from the machine itself, not from a certified
+  hardware list.
 - A full credential firewall (rides a later paid feature pack; v1 ships a
   default-on sandbox for model network access).
 - Smart-home integration and browser agent (paid feature packs).
 - Windows/macOS/iOS App Store distribution in v1 (installer first, stores
-  later), per the certified hardware list that masks OS variance.
+  later).
 
 ## Success metrics
 

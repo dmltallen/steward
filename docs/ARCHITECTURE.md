@@ -1,6 +1,34 @@
 # Steward Architecture
 
-**Version:** 1.3, 2026-10-26 (v1.5: vLLM benchmarked on U1 - the last open question in the serving-backend decision is answered; Ollama stays v1)
+**Version:** 1.4, 2026-10-26 (1.4 adds the runtime seam, pairing auth,
+retrieval index and tool connectors; 1.3 closed the serving-backend
+question with the vLLM benchmark on U1, Ollama stays v1)
+
+## What changed in 1.4
+
+Since 1.3 the daemon grew from the T2 route set to the full v1 route
+table. The four seams named in this revision:
+
+- **Runtime seam.** One internal interface (`runtime.py`) wraps the
+  serving backend. SystemOllama talks to a machine Ollama at
+  localhost:11434; SidecarOllama spawns and owns a bundled ollama on a
+  free port. The selector and clients never see the backend. The vLLM
+  option stays behind the same seam for a dedicated pool.
+- **Pairing auth.** A 6 digit code served only to loopback clients trades
+  for a signed session token (30 day sessions). Every daemon route is
+  Bearer-gated; the phone and browser clients get tokens via QR and code.
+- **Retrieval index.** A local vector index (S7) is built from the user's
+  own folders and adds citations to answers.
+- **Tool connectors.** Registered tools (files, shell, http, calendar)
+  run behind one gate: schema validation, a containment sandbox, then a
+  human approval with a SQLite decision store for every write, exec and
+  network call (S9).
+
+Also shipped into 1.4: the web client mounted at the daemon root (S5),
+the facts store, briefs and scheduler (S8), the redacted support bundle
+(S12), the resumable first-run wizard (S10), and the signed perpetual
+license plus OTA catalog (S11). Per-card detail and commit references are
+in docs/CHANGELOG.md.
 
 ## Running topology (T2, live on U1 2026-10-13)
 
@@ -26,6 +54,11 @@ selector output for this host plus which model actually serves chat. The
 selector-chosen 80B capability tier stays [uncertain] and is not pulled inside
 a cron window (memory guard); it is served on an interactive session with
 --model qwen3-next:80b after the pull.
+
+The v1 route families (health, bundle, pair, chat, conversations, source,
+summarize, briefs, approvals, doctor/bundle, webapp mount) were proven
+live as a set in the I2 integration; the setup wizard routes (S10) join
+them in the release merge. The table lives in src/steward/server/daemon.py.
 
 ## Components
 
@@ -77,11 +110,15 @@ a cron window (memory guard); it is served on an interactive session with
 ## Security model (v1 landlord)
 
 - Default-on network sandbox for the model process.
-- Memory store encrypted at rest; keys on the box.
+- Memory store and all user data live in owner-only (0700) directories
+  under the data root. Encryption at rest is a stated design goal for a
+  later release; v1.0 stores plaintext SQLite on the user's own disk, so
+  physical access to the machine means access to the data. See
+  docs/PRIVACY.md for exactly what is stored and its honest limits.
 - The advanced credential firewall (outbound request policing) is a paid
   feature pack built on the sandbox, not v1 scope.
-- Remote access is end-to-end encrypted via the mesh; LAN pairing uses QR
-  secrets, not open discovery.
+- Remote access is end-to-end encrypted via the mesh (a later capability);
+  LAN pairing uses QR secrets and loopback-only codes, not open discovery.
 
 ## Serving backend decision (CLOSED - Ollama v1 2026-10-11, vLLM branch benchmarked and deferred 2026-10-26)
 
