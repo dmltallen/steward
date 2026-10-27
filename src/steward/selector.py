@@ -1,14 +1,21 @@
 """Automatic model-bundle selection for Steward.
 
-Given a HardwareProfile (see detect.py), pick the small always-hot assistant
-model, the largest capability model whose Q4 weights fit the serving memory
-with headroom and whose optimistic speed clears the floor, and whether a
-vision model rides along. This is the "no complicated setup" core: the user
-never chooses a model, Steward does.
+Given a HardwareProfile (see detect.py) and the install-time compatibility
+verdict (see compat.py), pick the small always-hot assistant model, the
+largest capability model whose Q4 weights fit the serving memory with headroom
+and whose optimistic speed clears the floor, and whether a vision model rides
+along. This is the "no complicated setup" core: the user never chooses a
+model, Steward does.
+
+The verdict decides what the machine can do (state, recommended tier, serving
+memory); the selector consumes it as input instead of re-deriving the class.
+When no verdict is passed, the selector falls back to deriving the class from
+the profile's serving memory so older callers keep working.
 
 Rules (versioned here, single source of truth):
 1. The serving memory is VRAM for discrete GPUs, the unified pool for
-   Apple/GB10/Strix-Halo-class machines, and system RAM for iGPU/NPU boxes.
+   Apple/GB10/Strix-Halo-class machines, and system RAM minus 2 GB for
+   iGPU/CPU boxes (HardwareProfile.serving_mem_gb).
 2. Residency must fit mem * 0.80 (leave room for KV cache, context, memory
    store, browser, and the OS). On a 24 GB card that lands on the 27 B class,
    the same tier Ghost's Core is built on.
@@ -91,32 +98,46 @@ def _fast_assistants() -> list[Model]:
     return [MODELS[i] for i in _FAST_ASSISTANTS if i in MODELS]
 
 
-def select_bundle(profile: HardwareProfile) -> Bundle:
-    mem = profile.usable_mem_gb
-    cls = memory_class(mem)
+def select_bundle(profile: HardwareProfile, verdict=None) -> Bundle:
+    """Pick the bundle. Pass the compat verdict (see compat.py) so the class and
+    serving memory come from the verdict; without it, derive both from the
+    profile's serving memory (backward compatible)."""
+    if verdict is not None:
+        mem = verdict.serving_mem_gb
+        cls = verdict.recommended_tier
+    else:
+        mem = profile.serving_mem_gb
+        cls = memory_class(mem)
     budget = mem * RESIDENCY_FRACTION
 
     pool = [m for m in all_models() if _fits(m, budget) and _clears_floor(m)]
     if cls != "halo":
         pool = [m for m in pool if m.id != "llama4:scout"]
 
-    big_pool = profile.gpu_kind != "discrete" or mem >= VISION_THRESHOLD_GB
+    # Below the 40 GB threshold the verdict is lite: one capability model,
+    # no always-hot split, no vision. At 40 GB and up the full experience
+    # (split assistant, vision) applies, on unified pools and discrete alike.
+    lite_mode = mem < VISION_THRESHOLD_GB
 
-    if pool and not big_pool:
+    if pool and lite_mode:
         capability = max(pool, key=lambda m: m.params_b)
+        assistant = capability
+        vision = False
     elif pool:
         capable = [m for m in pool if budget - m.q4_gb >= BIG_POOL_HEADROOM_GB]
         capability = max(capable, key=lambda m: m.params_b) if capable else max(pool, key=lambda m: m.params_b)
+        headroom = budget - capability.q4_gb
+        if headroom >= 4.0:
+            assistant_budget = headroom * 0.6
+            fitting = [m for m in _fast_assistants() if m.q4_gb <= assistant_budget]
+            assistant = min(fitting, key=lambda m: m.q4_gb) if fitting else capability
+            left = headroom - (assistant.q4_gb if assistant.id != capability.id else 0.0)
+        else:
+            assistant = capability
+            left = headroom
+        vision = left >= VISION_MIN_HEADROOM_GB
     else:
         capability = all_models()[0]
-
-    headroom = budget - capability.q4_gb
-    if big_pool and headroom >= 4.0:
-        assistant_budget = headroom * 0.6
-        fitting = [m for m in _fast_assistants() if m.q4_gb <= assistant_budget]
-        assistant = min(fitting, key=lambda m: m.q4_gb) if fitting else capability
-        vision = (headroom - (assistant.q4_gb if assistant.id != capability.id else 0.0)) >= VISION_MIN_HEADROOM_GB
-    else:
         assistant = capability
         vision = False
 

@@ -1,19 +1,22 @@
 """Hardware detection for Steward.
 
 Produces a HardwareProfile describing the machine the assistant will run on.
-The profile drives model selection (see selector.py). Detection is deliberately
-conservative: unknown fields default to zero rather than guessing, and every
-case it cannot recognize lands in gpu_kind = "igpu_ram" (system RAM offload)
-or "none" so the selector falls back to the smallest safe bundle.
+The profile drives the install-time compatibility verdict (compat.py) and the
+model-bundle selection (selector.py). Detection is deliberately conservative:
+unknown fields default to zero rather than guessing, and every case it cannot
+recognize lands in gpu_kind = "cpu" (CPU-only, no GPU path) so the verdict
+reports what the memory can actually hold and the selector falls back to the
+smallest safe bundle.
 """
 
 from __future__ import annotations
 
-import os
 import platform
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 @dataclass
@@ -22,24 +25,38 @@ class HardwareProfile:
     arch: str
     cpu_name: str = ""
     npu_tops: float = 0.0
-    gpu_kind: str = "none"  # discrete | unified | igpu_ram | none
+    gpu_kind: str = "none"  # discrete | unified | igpu_ram | cpu | none
     gpu_name: str = ""
     vram_gb: float = 0.0
     ram_gb: float = 0.0
+    ram_available_gb: float = 0.0
     unified_gb: float = 0.0
+    disk_free_gb: float = 0.0
     bandwidth_gb_s: float = 0.0  # best effort, GB/s for the serving memory
+    confidence: str = "fallback"  # nvml | apple_sysctl | /proc/meminfo | fallback
     notes: list = field(default_factory=list)
 
     @property
-    def usable_mem_gb(self) -> float:
-        """Memory the model weights can occupy, in GB."""
+    def serving_mem_gb(self) -> float:
+        """Usable serving memory in GB, the number every decision starts from.
+
+        Rule (single source, consumed by compat.py and selector.py): discrete
+        GPUs use VRAM, unified pools (Apple, NVIDIA GB10, Strix Halo) use the
+        whole unified pool, iGPU and CPU-only boxes use system RAM minus 2 GB
+        reserved for the operating system.
+        """
         if self.gpu_kind == "unified":
             return self.unified_gb
         if self.gpu_kind == "discrete":
             return self.vram_gb
-        if self.gpu_kind == "igpu_ram":
-            return self.ram_gb
+        if self.gpu_kind in ("igpu_ram", "cpu"):
+            return max(self.ram_gb - 2.0, 0.0)
         return 0.0
+
+    @property
+    def usable_mem_gb(self) -> float:
+        """Backward-compatible alias for serving_mem_gb."""
+        return self.serving_mem_gb
 
 
 def _run(cmd: list[str], timeout: int = 5) -> str:
@@ -54,6 +71,29 @@ def _mem_total_gb_linux() -> float:
     out = _run(["cat", "/proc/meminfo"])
     m = re.search(r"MemTotal:\s+(\d+) kB", out)
     return round(int(m.group(1)) / 1024 / 1024, 1) if m else 0.0
+
+
+def _mem_available_gb_linux() -> float:
+    out = _run(["cat", "/proc/meminfo"])
+    m = re.search(r"MemAvailable:\s+(\d+) kB", out)
+    return round(int(m.group(1)) / 1024 / 1024, 1) if m else 0.0
+
+
+def _disk_free_gb(path: Path) -> float:
+    """Free space on the filesystem that holds the data directory, in GB.
+
+    The data root may not exist yet at install time; walk up to the nearest
+    existing ancestor, which sits on the same filesystem, so the measurement
+    still reports the disk the data dir will live on.
+    """
+    probe = path
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    try:
+        free = shutil.disk_usage(probe).free
+        return round(free / (1024 ** 3), 1)
+    except OSError:
+        return 0.0
 
 
 def _cpu_name_linux() -> str:
@@ -71,10 +111,10 @@ _APPLE_BW = {
 }
 
 
-def _apple_profile() -> HardwareProfile:
+def _apple_profile(disk_free_gb: float = 0.0) -> HardwareProfile:
     chip = (_run(["sysctl", "-n", "machdep.cpu.brand_string"]) or "apple").lower()
-    ram_kb = _run(["sysctl", "-n", "hw.memsize"])
-    ram_gb = round(int(ram_kb) / 1e9, 1) if ram_kb.isdigit() else 0.0
+    membytes = _run(["sysctl", "-n", "hw.memsize"])
+    ram_gb = round(int(membytes) / 1e9, 1) if membytes.isdigit() else 0.0
     bw = next((v for k, v in _APPLE_BW.items() if k in chip), 100.0)
     return HardwareProfile(
         os_name="darwin",
@@ -84,17 +124,26 @@ def _apple_profile() -> HardwareProfile:
         gpu_name=chip,
         unified_gb=ram_gb,
         ram_gb=ram_gb,
+        disk_free_gb=disk_free_gb,
         bandwidth_gb_s=bw,
-        notes=["Apple unified memory; pool is the serving memory."],
+        confidence="apple_sysctl",
+        notes=["Apple unified memory; the pool is the serving memory.",
+               "Available RAM not exposed via sysctl; reported as 0, does not affect decisions."],
     )
 
 
-def _linux_nvidia_profile(cpu_name: str, ram_gb: float) -> HardwareProfile:
+def _linux_nvidia_profile(cpu_name: str, ram_gb: float, ram_avail: float,
+                          disk_free_gb: float) -> HardwareProfile:
     smi = _run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"])
     if not smi:
-        return HardwareProfile(os_name="linux", arch=platform.machine(), cpu_name=cpu_name,
-                               ram_gb=ram_gb, gpu_kind="igpu_ram",
-                               notes=["No nvidia-smi output; falling back to system RAM offload."])
+        return HardwareProfile(
+            os_name="linux", arch=platform.machine(), cpu_name=cpu_name,
+            ram_gb=ram_gb, ram_available_gb=ram_avail,
+            gpu_kind="cpu", disk_free_gb=disk_free_gb,
+            confidence="/proc/meminfo",
+            notes=["No NVIDIA GPU detected by nvidia-smi; running CPU-only. "
+                   "An on-chip GPU, if present, uses the same system RAM."],
+        )
     name, _, mem = smi.partition(",")
     vram_mb = 0.0
     m = re.search(r"(\d+)\s*MiB", mem)
@@ -102,8 +151,11 @@ def _linux_nvidia_profile(cpu_name: str, ram_gb: float) -> HardwareProfile:
         vram_mb = float(m.group(1))
     vram_gb = round(vram_mb / 1024, 1)
     is_gb10 = "gb10" in name.lower()
-    profile = HardwareProfile(os_name="linux", arch=platform.machine(), cpu_name=cpu_name,
-                              ram_gb=ram_gb, gpu_name=name.strip())
+    profile = HardwareProfile(
+        os_name="linux", arch=platform.machine(), cpu_name=cpu_name,
+        ram_gb=ram_gb, ram_available_gb=ram_avail, gpu_name=name.strip(),
+        disk_free_gb=disk_free_gb, confidence="nvml",
+    )
     if is_gb10:
         # UMA platform: the unified pool is the serving memory (121 GB usable on U1).
         profile.gpu_kind = "unified"
@@ -135,15 +187,29 @@ def _npu_estimate(cpu_name: str) -> float:
     return 0.0
 
 
-def detect() -> HardwareProfile:
+def detect(data_dir: Path | None = None) -> HardwareProfile:
+    """Detect the running machine into a HardwareProfile.
+
+    data_dir selects which filesystem to measure free disk on; it defaults to
+    the Steward data root (paths.data_root). No directory is created here.
+    """
+    from . import paths  # local import keeps detect a stdlib-only leaf otherwise
+
+    base = data_dir if data_dir is not None else paths.data_root()
+    disk_free = _disk_free_gb(base)
+
     system = platform.system().lower()
     arch = platform.machine().lower()
     if system == "darwin" and arch.startswith("arm"):
-        return _apple_profile()
+        return _apple_profile(disk_free)
     cpu_name = _cpu_name_linux() if system == "linux" else platform.processor() or ""
     ram_gb = _mem_total_gb_linux() if system == "linux" else 0.0
+    ram_avail = _mem_available_gb_linux() if system == "linux" else 0.0
     if system == "linux":
-        return _linux_nvidia_profile(cpu_name, ram_gb)
-    return HardwareProfile(os_name=system, arch=arch, cpu_name=cpu_name,
-                           ram_gb=ram_gb, gpu_kind="igpu_ram",
-                           notes=["Unsupported OS for full detection; treating as RAM offload."])
+        return _linux_nvidia_profile(cpu_name, ram_gb, ram_avail, disk_free)
+    return HardwareProfile(
+        os_name=system, arch=arch, cpu_name=cpu_name,
+        ram_gb=ram_gb, gpu_kind="cpu", disk_free_gb=disk_free,
+        confidence="fallback",
+        notes=["Unsupported OS for full detection; treating as CPU-only."],
+    )
