@@ -1,0 +1,13 @@
+[Unit]
+Description=Steward local AI assistant daemon
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+ExecStart=/usr/bin/steward serve
+# Steward configuration is created by the first-run wizard; the daemon reads
+# the default paths when no config exists yet.
+
+[Install]
+WantedBy=default.target
