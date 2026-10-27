@@ -16,3 +16,4 @@ bench/.hf-cache/
 # public key is embedded in src/steward/license.py.
 .steward-keys/
 *.signing.key
+.worktrees/

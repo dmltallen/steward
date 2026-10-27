@@ -1234,9 +1234,59 @@ def run_tui_options(*, model: str = "", source: str = "", port: int = 0,
         ui.emit("When you want to pair for real: `steward serve` shows a "
                 "fresh code; the app pairs over your local network.")
     else:
-        ui.emit("The pairing daemon was left running in the background so you "
-                "can pair right away.")
+        ok, detail = _spawn_detached_serve(port=port, model=model,
+                                           source=source, home=home)
+        if ok:
+            ui.emit("The pairing daemon is running in the background (%s)." % detail)
+            ui.emit("Stop it with: pkill -f 'steward serve'")
+        else:
+            ui.emit("Could not leave a daemon running (%s)." % detail)
+            ui.emit("Start it yourself with: steward serve")
     return 0
+
+
+def _spawn_detached_serve(port: int, model: str, source: str, home: str) -> tuple[bool, str]:
+    """Start a Steward daemon that outlives this process, verified by /health.
+
+    The wizard's own daemon runs in a thread, so it dies the moment the setup
+    process exits. When the user asks to keep it running, hand off to a
+    detached `steward serve` and confirm it answers before saying so.
+    """
+    import os
+    import subprocess
+    import time
+    import urllib.request
+
+    data_home = home or os.environ.get("STEWARD_HOME") or str(Path.home() / ".steward")
+    log = Path(data_home) / "logs" / "daemon.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, "serve"]
+    else:
+        cmd = [sys.executable, "-m", "steward.cli", "serve"]
+    cmd += ["--port", str(port or 3877), "--model", model or "qwen3:8b"]
+    if source:
+        cmd += ["--source", source]
+    env = dict(os.environ)
+    env["STEWARD_HOME"] = data_home
+    try:
+        with open(log, "ab") as fh:
+            proc = subprocess.Popen(cmd, stdout=fh, stderr=fh, stdin=subprocess.DEVNULL,
+                                    start_new_session=True, env=env,
+                                    cwd=str(Path(data_home)))
+    except Exception as exc:  # noqa: BLE001 - the caller prints an honest fallback
+        return False, str(exc)
+    for _ in range(40):
+        time.sleep(0.5)
+        try:
+            with urllib.request.urlopen(
+                    "http://127.0.0.1:%d/health" % (port or 3877), timeout=1) as r:
+                if r.status == 200:
+                    return True, "pid %d, log %s" % (proc.pid, log)
+        except Exception:  # noqa: BLE001 - not up yet, or it died
+            if proc.poll() is not None:
+                return False, "exited %s, see %s" % (proc.returncode, log)
+    return False, "no answer on port %d within 20s, see %s" % (port or 3877, log)
 
 
 if __name__ == "__main__":

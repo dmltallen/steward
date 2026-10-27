@@ -286,6 +286,11 @@ def check_for_update(source: str, fetcher=None, root: Path | None = None) -> dic
     payload = verify_manifest(fetch_document(source, fetcher))
     st = current_state(root) or {}
     current = (st.get("active_catalog") or "embedded")
+    if current == "embedded":
+        # An embedded catalog is not a persisted generation, so the state file
+        # has no model list: report the built-in one rather than 0.
+        st = dict(st)
+        st["models"] = [m["id"] for m in embedded_catalog()["models"]]
     return {
         "ok": True,
         "available": current == "embedded" or payload["version"] != current,

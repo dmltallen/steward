@@ -80,10 +80,13 @@ class Runtime:
     kind = "runtime"
 
     def __init__(self, url: str = DEFAULT_OLLAMA_URL, timeout: float = 8.0,
-                 model: str | None = None) -> None:
+                 model: str | None = None, thinking: bool = False,
+                 keep_alive: str = "30m") -> None:
         self.url = url.rstrip("/")
         self.timeout = timeout
         self.model = model
+        self.thinking = thinking
+        self.keep_alive = keep_alive
 
     # -- HTTP plumbing --------------------------------------------------------
 
@@ -170,13 +173,44 @@ class Runtime:
             "messages": messages,
             "stream": bool(stream),
             "options": {"temperature": 0.7},
+            # An always-on assistant must answer while the user is still looking
+            # at the screen. Reasoning models (qwen3 and friends) emit a long
+            # hidden think block first: measured on U1, the first visible token
+            # arrived at 17.0s with thinking on versus 0.11s with it off, for the
+            # same prompt. Off by default; operators can turn it back on.
+            "think": bool(self.thinking),
+            # Keep the assistant warm between turns. Without this the model is
+            # evicted and the next request pays the load again.
+            "keep_alive": self.keep_alive,
         }
         if not stream:
-            data = self._post_json("/api/chat", payload)
+            try:
+                data = self._post_json("/api/chat", payload)
+            except BackendError:
+                # A model that does not support `think` rejects the field.
+                payload.pop("think", None)
+                data = self._post_json("/api/chat", payload)
             message = data.get("message") or {}
             yield {"delta": message.get("content", "")}
             return
-        for line in self._post_stream("/api/chat", payload):
+        line_iter = None
+        try:
+            line_iter = self._post_stream("/api/chat", payload)
+            first = next(line_iter)
+        except (BackendError, StopIteration):
+            # Retry once without `think` for backends that reject the field.
+            payload.pop("think", None)
+            if not stream:
+                return
+            line_iter = self._post_stream("/api/chat", payload)
+            first = next(line_iter, None)
+        for line in ([first] if first else []):
+            if line.get("done") is True:
+                continue
+            content = (line.get("message") or {}).get("content", "")
+            if content:
+                yield {"delta": content}
+        for line in line_iter:
             if line.get("done") is True:
                 continue
             content = (line.get("message") or {}).get("content", "")
@@ -190,8 +224,10 @@ class SystemOllama(Runtime):
     kind = "system-ollama"
 
     def __init__(self, url: str = DEFAULT_OLLAMA_URL, timeout: float = 8.0,
-                 model: str | None = None) -> None:
-        super().__init__(url=url, timeout=timeout, model=model)
+                 model: str | None = None, thinking: bool = False,
+                 keep_alive: str = "30m") -> None:
+        super().__init__(url=url, timeout=timeout, model=model,
+                         thinking=thinking, keep_alive=keep_alive)
 
     def health(self) -> dict:
         base = {
@@ -222,8 +258,10 @@ class SidecarOllama(Runtime):
     def __init__(self, binary: str = "", *, host: str = SIDECAR_HOST,
                  port: int | None = None,
                  startup_timeout: float = SIDECAR_STARTUP_TIMEOUT_S,
-                 timeout: float = 8.0, model: str | None = None) -> None:
-        Runtime.__init__(self, url="", timeout=timeout, model=model)
+                 timeout: float = 8.0, model: str | None = None,
+                 thinking: bool = False, keep_alive: str = "30m") -> None:
+        Runtime.__init__(self, url="", timeout=timeout, model=model,
+                         thinking=thinking, keep_alive=keep_alive)
         self._requested_binary = binary
         self.host = host
         self._forced_port = port

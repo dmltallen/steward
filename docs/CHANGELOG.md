@@ -1,5 +1,32 @@
 # Steward Changelog
 
+## v1.0.1 (2026-10-27)
+
+Test-drive fixes, all found by running the private-environment drive on U1.
+
+- **First token at 0.084s instead of 17s.** The assistant now asks the backend
+  for no hidden reasoning by default (`think: false`) and keeps the model warm
+  between turns (`keep_alive: 30m`). Measured on U1 with the same prompt:
+  first visible token 17.0s with thinking on, 0.11s with it off; turn total
+  23.7s down to 1.5s. Operators can turn thinking back on.
+- **`steward serve` accepts its own flags.** `--port`, `--model`, `--source`,
+  `--host`, `--ollama-url` were rejected with "unrecognized arguments" even
+  though the daemon supported them, which also broke any systemd unit using
+  them.
+- **`steward setup --keep-daemon` now leaves a daemon running.** It previously
+  printed that the daemon was left running while the in-process thread died
+  with the setup process. It now hands off to a detached `steward serve`,
+  verifies /health, and prints the pid and log path or an honest fallback.
+- **`steward brief`** generates today's brief on demand and prints it; the
+  daemon gained `POST /v1/briefs/generate` for the web client. Previously a
+  brief could only appear on a schedule.
+- **Install script private-repo support (F1).** `STEWARD_GITEA_TOKEN` is sent on
+  the release API and both downloads, with an explicit private-repo hint
+  instead of a bare failure.
+- **Arch-aware install docs (F2).** README and QUICKSTART no longer name an
+  amd64 deb that this release did not build.
+- **`steward ota status` reports the embedded catalog size** instead of 0.
+
 All notable changes to Steward, newest first. Versioning follows release
 tags on the `don/steward` gitea repo, which is the source of truth. Commit
 hashes below resolve against that repo.

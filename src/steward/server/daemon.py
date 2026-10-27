@@ -82,7 +82,10 @@ DEFAULT_MODEL = "qwen3:8b"  # resident 8B assistant, the v0.1 pick, benchmarked 
 DEFAULT_SOURCE = str(Path(__file__).resolve().parents[3] / "demo" / "source")
 MAX_BODY = 1_000_000
 
-VERSION = "0.2.0"
+try:  # report the package version, not a hand-kept constant
+    from steward import __version__ as VERSION
+except Exception:  # noqa: BLE001 - the daemon must still start
+    VERSION = "0.0.0+unknown"
 
 
 def _env(name: str, default: str) -> str:
@@ -331,6 +334,15 @@ class Handler(BaseHTTPRequestHandler):
             if self._require_auth() is None:
                 return
             self._handle_chat_shim()
+        elif path == "/v1/briefs/generate":
+            if self._require_auth() is None:
+                return
+            try:
+                from steward.memory.brief import build_brief
+                out = build_brief(None, "today")
+                self._json(200, {"ok": True, "brief": out})
+            except Exception as exc:  # noqa: BLE001 - surfaced to the client
+                self._json(502, {"ok": False, "error": str(exc)})
         elif path in ("/v1/summarize", "/demo/summarize"):
             if self._require_auth() is None:
                 return

@@ -352,3 +352,58 @@ actually went; leave unrun parts as "skipped" with a reason.
   assumes cached models on the measured leg.
 - vLLM, subscription offers, and anything from the no-go list: out of scope
   for this gate, unchanged.
+
+---
+
+# Part 9. Machine run inside the private environment (agent executed, 2026-10-27)
+
+Don will not publish the repo until the market and customer plan exist, so the
+machine-executable parts of this gate were run by the agent against the private
+release and the source tree on U1. Everything below is measured, not asserted.
+What remains for the human pass is judgement: how it feels, the phone on a real
+handset, and the Windows and macOS legs that were never built.
+
+## 9.1 Results
+
+| Part | What ran | Measured | Verdict |
+| --- | --- | --- | --- |
+| 0 | release assets re-downloaded from gitea with a token | binary sha256 `ff8489c2...` and deb `e3b24f55...` both match SHA256SUMS | pass |
+| 1 | install via the authenticated one-liner (`STEWARD_GITEA_TOKEN`) into a clean prefix | 15 s including the 48 MB download and checksum | pass after F1 fix |
+| 2 | `steward doctor`, `steward check` | correct machine, verdict full, 121.6 GB usable, 346.5 GB free, bundle extreme | pass |
+| 3 | `steward setup --model qwen3:8b --source <notes>` | 16 s end to end with a cached model; self-test chat and a real note summary | pass |
+| 4 | pairing | code issued, `POST /v1/pair` returned an 88-char token, every protected route refused it before pairing (401) | pass |
+| 5 | chat streaming after the latency fix | first delta 0.084 s, turn 1.5 s (was 17.0 s to first token, 23.7 s per turn) | pass after F7 fix |
+| 6 | retrieval | 2 files indexed in 0.09 s, search returned the right file with chunk ordinal and offsets | pass |
+| 7 | brief | `steward brief` produced a real brief from the indexed notes | pass after F9 fix |
+| 7b | tools | library present with approval records, but the chat path never calls the tool loop | **fail, F8** |
+| 8 | license | mint for this machine, activate, status; a tampered copy (tier raised to power) refused with exit 1 | pass |
+| 8b | OTA | status reports the embedded catalog (9 models) after F10; `check` needs a manifest URL, `STEWARD_OTA_URL` unset | pass with a config gap |
+| 8c | diagnostics | bundle written with members bundle.json, system.txt, versions, redacted config, log tail | pass |
+| 8d | service | systemd user unit failed with the 1.0.0 binary because `serve --port` was rejected (F5); re-verified after the 1.0.1 rebuild | pass after F5 fix |
+| 9 | uninstall | prefix removal leaves the data root; documented as intended | pass |
+
+## 9.2 Friction log (machine run)
+
+| # | Where | What happened | Severity | Status |
+| --- | --- | --- | --- | --- |
+| F1 | install one-liner | every anonymous URL 404s on a private repo, so a fresh machine cannot install | high | **fixed in 1.0.1** (`STEWARD_GITEA_TOKEN`, explicit hint) |
+| F2 | install docs | README and QUICKSTART named an amd64 deb this release never built | medium | **fixed in 1.0.1** (arch-aware) |
+| F3 | machine legs | no Windows or macOS binary exists; winget and brew manifests are templates | high for the promise | post-v1 (needs an amd64/Windows build host) |
+| F4 | chat vs retrieval | retrieval answers live in the Files pane; chat replies do not cite them | low | post-v1 |
+| F5 | `steward serve` | `--port`, `--model`, `--source`, `--host`, `--ollama-url` rejected as unrecognized, which also broke any unit file passing flags | high | **fixed in 1.0.1** |
+| F6 | `setup --keep-daemon` | printed that the daemon was left running while the in-process thread died with setup | medium | **fixed in 1.0.1** (detached handoff verified by /health) |
+| F7 | chat latency | first visible token at 17.0 s because the model's hidden reasoning streamed before any content; turn 23.7 s | critical for the first-run impression | **fixed in 1.0.1** (`think` off by default, `keep_alive` 30m; now 0.084 s first token, 1.5 s turn) |
+| F8 | tools | `run_loop` exists with approvals, allowlists and sandbox tests, but no daemon route or chat path invokes it, so tool use is unreachable in the product | high | **open, fix-now** |
+| F9 | briefs | a brief could only appear on a schedule; nothing let a person ask for one | medium | **fixed in 1.0.1** (`steward brief`, `POST /v1/briefs/generate`) |
+| F10 | `ota status` | reported "models: 0" while the embedded catalog holds 9 | low | **fixed in 1.0.1** |
+| F11 | `/health` | reported daemon version 0.2.0 while the package was 1.0.0 | low | **fixed in 1.0.1** (reads the package version) |
+
+## 9.3 What only Don can do
+
+1. Judge the feel: setup screen pacing, webapp at 1280x800 and 390x844, whether
+   the brief reads like something you would trust.
+2. Pair a real phone against a real daemon, with the app from `npx expo start`.
+3. Decide whether F8 (tools reachable from chat) is fix-now or a 1.1 headline,
+   since it changes the chat contract and the approval UX.
+4. Say whether the Windows leg matters before the market plan, which decides
+   whether we spend a day on a Windows build host next.

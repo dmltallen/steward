@@ -6,6 +6,7 @@ Commands:
     steward check     verdict: what this machine can run, in plain English
     steward wizard    first-run setup: detect, plan, print install commands
     steward setup     first-run wizard (TUI): preflight to phone pairing, resumable
+    steward brief     generate today's brief now and print it
     steward serve     run the local daemon (delegates to server/daemon.py)
     steward license   activate a signed perpetual license, print tier status
     steward ota       signed model-catalog updates: check, apply, status
@@ -292,7 +293,19 @@ def main(argv=None) -> int:
     sp_setup.add_argument("--from", dest="from_state", default="")
     sp_setup.add_argument("--keep-daemon", action="store_true")
     sp_setup.add_argument("--home", default="")
-    sub.add_parser("serve", help="run the local daemon (src/steward/server/daemon.py)")
+    sp_brief = sub.add_parser("brief", help="generate today's brief now and print it")
+    sp_brief.add_argument("--date", default="", help="YYYY-MM-DD, default today")
+    sp_brief.add_argument("--scope", default="today")
+    sp_serve = sub.add_parser("serve", help="run the local daemon "
+                                             "(src/steward/server/daemon.py)")
+    # Declared here so the top-level parser accepts them, then forwarded to the
+    # daemon's own argparse below. Without this, `steward serve --port N` failed
+    # with "unrecognized arguments" even though the daemon supports them.
+    sp_serve.add_argument("--host", default="")
+    sp_serve.add_argument("--port", type=int, default=0)
+    sp_serve.add_argument("--model", default="")
+    sp_serve.add_argument("--source", default="")
+    sp_serve.add_argument("--ollama-url", dest="ollama_url", default="")
     sub.add_parser("version", help="print the package version")
     sub.add_parser("license", help="perpetual license: activate, status")
     sub.add_parser("ota", help="signed catalog updates: check, apply, status")
@@ -312,9 +325,30 @@ def main(argv=None) -> int:
                                            from_state=args.from_state,
                                            keep_daemon=args.keep_daemon,
                                            home=args.home)
+    elif args.cmd == "brief":
+        from .memory.brief import build_brief
+        try:
+            out = build_brief(args.date or None, args.scope or "today")
+        except Exception as exc:  # noqa: BLE001 - a person reads this, not a traceback
+            print("brief failed: %s" % exc)
+            print("check that the backend is running (steward doctor).")
+            return 1
+        print(out.get("text") or "(empty brief)")
+        return 0
     elif args.cmd == "serve":
         from .server.daemon import main as daemon_main
-        return daemon_main((argv or [])[1:])
+        fwd = []
+        if args.host:
+            fwd += ["--host", args.host]
+        if args.port:
+            fwd += ["--port", str(args.port)]
+        if args.model:
+            fwd += ["--model", args.model]
+        if args.source:
+            fwd += ["--source", args.source]
+        if args.ollama_url:
+            fwd += ["--ollama-url", args.ollama_url]
+        return daemon_main(fwd)
     elif args.cmd == "version":
         return _version()
     return 0
