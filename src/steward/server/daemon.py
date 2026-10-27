@@ -24,6 +24,12 @@ Bearer-required (Authorization: Bearer <token>):
     GET  /v1/conversations/{id}       conversation + messages
     DELETE /v1/conversations/{id}     delete conversation and its messages
     POST /v1/conversations/{id}/messages  append {role?, content}
+    GET  /v1/briefs           stored briefs, newest first (S8 memory)
+    GET  /v1/briefs/today     most recent brief for today, if any
+    GET  /v1/approvals        pending + decided tool approvals (S9)
+    POST /v1/approvals/{id}   {decision|approve} decides a pending approval
+    GET  /doctor/bundle       build a redacted support bundle (S12)
+    GET  / , /index.html , /app.js , /style.css + /v1/webapp/*  (S5 webapp)
 
 Conversations and messages persist in SQLite at <data>/db/steward.db (WAL).
 Pass conversation_id to /v1/chat or /chat to record both turns in the store.
@@ -66,6 +72,8 @@ from steward.server.auth import (
     load_or_create_secret,
 )
 from steward.server.mdns import Advertiser, instance_name, lan_ip
+from steward.memory.store import MemoryStore
+from steward.tools.approvals import ApprovalManager, approvals_router
 from steward.webapp import serve as webapp_serve
 
 DEFAULT_HOST = "0.0.0.0"  # LAN-visible by default; auth gates every route
@@ -179,6 +187,13 @@ class DaemonContext:
         self.limiter = PairRateLimiter()
         self.port = 0  # filled in by StewardServer once the socket is bound
         self.host_ip = "127.0.0.1"  # filled in by StewardServer
+        # S8 memory + S9 approvals: one store per daemon, at <data>/db/, so the
+        # daemon serves /v1/briefs and /v1/approvals from the same data root
+        # as conversations and pairing.
+        data_root = Path(db_path).resolve().parent.parent
+        self.memory_store = MemoryStore(data_root / "db" / "memory.db")
+        self.approval_manager = ApprovalManager(data_root / "db" / "approvals.db")
+        self.approvals_handle = approvals_router(self.approval_manager)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -281,6 +296,24 @@ class Handler(BaseHTTPRequestHandler):
                 self._handle_conversation_get(_as_int(parts[2]))
             else:
                 self._json(404, {"error": "not found"})
+        elif parts[:2] == ["v1", "approvals"]:
+            # S9 approvals contract: GET /v1/approvals lists pending + history.
+            if self._require_auth() is None:
+                return
+            status, payload = self.ctx.approvals_handle("GET", parts)
+            self._json(status, payload)
+        elif path == "/v1/briefs":
+            if self._require_auth() is None:
+                return
+            self._handle_briefs_list()
+        elif path == "/v1/briefs/today":
+            if self._require_auth() is None:
+                return
+            self._handle_briefs_today()
+        elif path == "/doctor/bundle":
+            if self._require_auth() is None:
+                return
+            self._handle_doctor_bundle()
         else:
             self._json(404, {"error": "not found"})
 
@@ -308,6 +341,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._handle_conversation_message(_as_int(parts[2]))
             else:
                 self._json(404, {"error": "not found"})
+        elif len(parts) == 3 and parts[:2] == ["v1", "approvals"]:
+            # S9 approvals: POST /v1/approvals/{id} {decision|approve} decides.
+            if self._require_auth() is None:
+                return
+            status, payload = self.ctx.approvals_handle(
+                "POST", parts, body=self._read_json())
+            self._json(status, payload)
         else:
             self._json(404, {"error": "not found"})
 
@@ -520,6 +560,49 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._json(201, msg)
 
+    # -- memory briefs (S8) ------------------------------------------------------
+
+    def _handle_briefs_list(self) -> None:
+        """GET /v1/briefs: stored briefs, newest first (webapp history pane)."""
+        briefs = self.ctx.memory_store.list_briefs(limit=50)
+        self._json(200, {"briefs": briefs})
+
+    def _handle_briefs_today(self) -> None:
+        """GET /v1/briefs/today: the most recent brief for today, if any."""
+        from datetime import date
+        row = self.ctx.memory_store.brief_for_date(date.today().isoformat())
+        self._json(200, {
+            "today": row["text"] if row else "",
+            "brief": row if row else None,
+        })
+
+    # -- diagnostics bundle (S12) --------------------------------------------------
+
+    def _handle_doctor_bundle(self) -> None:
+        """GET /doctor/bundle: build a redacted support bundle and report it.
+
+        The bundle is written into <data>/support/steward-support-<ts>.zip and
+        the JSON reply carries the member list and byte count (no secrets in
+        the reply). Requires a bearer token like every other data route.
+        """
+        from steward.diagnostics import build_bundle
+
+        data_root = self.ctx.db_path.resolve().parent.parent
+        support_dir = data_root / "support"
+        support_dir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        out_path = support_dir / f"steward-support-{stamp}.zip"
+        try:
+            path = build_bundle(out_path, root=data_root, runtime=self.ctx.runtime)
+        except Exception as exc:  # noqa: BLE001 - a failed bundle is a 500
+            self._json(500, {"error": str(exc)})
+            return
+        import zipfile
+        with zipfile.ZipFile(path) as zf:
+            members = sorted(zf.namelist())
+        self._json(200, {"ok": True, "bundle": str(path), "members": members,
+                         "bytes": path.stat().st_size})
+
 
 class StewardServer(ThreadingHTTPServer):
     daemon_threads = True
@@ -614,6 +697,19 @@ def main(argv=None) -> int:
                            model=args.model, source_dir=args.source,
                            advertise=not args.no_mdns)
 
+    # S8 scheduler: start the job thread (morning brief, user jobs). It reads
+    # <data>/jobs.json (seeded with the default when absent) and never blocks
+    # daemon boot; the daemon owns its lifecycle and history.
+    scheduler = None
+    try:
+        from steward.scheduler import Scheduler
+        scheduler = Scheduler(cfg=cfg)
+        scheduler.start()
+        count = len(scheduler.store.list_jobs())
+        print(f"  scheduler: {count} job(s) loaded (morning brief on schedule)")
+    except Exception as exc:  # noqa: BLE001 - a broken scheduler never blocks boot
+        print(f"  WARNING scheduler failed to start: {exc}")
+
     ctx = server.ctx
     ip = ctx.host_ip
     port = ctx.port
@@ -633,6 +729,11 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         print("  shutdown requested")
     finally:
+        if scheduler is not None:
+            try:
+                scheduler.stop()
+            except Exception:  # noqa: BLE001 - shutdown must not raise
+                pass
         server.shutdown_server()
         if hasattr(runtime, "shutdown"):
             runtime.shutdown()  # type: ignore[attr-defined]
