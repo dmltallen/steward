@@ -5,6 +5,7 @@ Commands:
     steward plan      print the auto-selected model bundle
     steward check     verdict: what this machine can run, in plain English
     steward wizard    first-run setup: detect, plan, print install commands
+    steward setup     first-run wizard (TUI): preflight to phone pairing, resumable
     steward serve     run the local daemon (delegates to server/daemon.py)
     steward version   print the package version
 
@@ -169,6 +170,15 @@ def main(argv=None) -> int:
     sub.add_parser("plan", help="auto-selected model bundle")
     sub.add_parser("check", help="what this machine can run, in plain English")
     sub.add_parser("wizard", help="first-run setup wizard")
+    sp_setup = sub.add_parser("setup", help="first-run wizard, one screen to "
+                                           "phone pairing (resumable)")
+    # Flags mirror wizard.run_tui; the values go to wizard.run_tui_options.
+    sp_setup.add_argument("--model", default="")
+    sp_setup.add_argument("--source", default="")
+    sp_setup.add_argument("--port", type=int, default=0)
+    sp_setup.add_argument("--from", dest="from_state", default="")
+    sp_setup.add_argument("--keep-daemon", action="store_true")
+    sp_setup.add_argument("--home", default="")
     sub.add_parser("serve", help="run the local daemon (src/steward/server/daemon.py)")
     sub.add_parser("version", help="print the package version")
     args = parser.parse_args(argv)
@@ -180,6 +190,13 @@ def main(argv=None) -> int:
         return _check()
     elif args.cmd == "wizard":
         return _wizard()
+    elif args.cmd == "setup":
+        from . import wizard as _wizard_mod
+        return _wizard_mod.run_tui_options(model=args.model, source=args.source,
+                                           port=args.port,
+                                           from_state=args.from_state,
+                                           keep_daemon=args.keep_daemon,
+                                           home=args.home)
     elif args.cmd == "serve":
         from .server.daemon import main as daemon_main
         return daemon_main((argv or [])[1:])
