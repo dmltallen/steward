@@ -66,6 +66,7 @@ from steward.server.auth import (
     load_or_create_secret,
 )
 from steward.server.mdns import Advertiser, instance_name, lan_ip
+from steward.webapp import serve as webapp_serve
 
 DEFAULT_HOST = "0.0.0.0"  # LAN-visible by default; auth gates every route
 DEFAULT_PORT = 3877
@@ -247,6 +248,9 @@ class Handler(BaseHTTPRequestHandler):
     def _dispatch(self, method: str) -> None:
         path = (self.path or "").split("?", 1)[0]
         parts = [p for p in path.split("/") if p]
+        # S5 mount: the webapp serves its static client and its own API here.
+        if webapp_serve.dispatch(self, method, parts, path):
+            return
         try:
             if method == "GET":
                 self._route_get(parts, path)
