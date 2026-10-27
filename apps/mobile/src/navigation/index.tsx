@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { navigationTheme, useTheme } from '../theme';
 import { OnboardingScreen } from '../screens/OnboardingScreen';
 import { ChatScreen } from '../screens/ChatScreen';
+import { ConversationsScreen } from '../screens/ConversationsScreen';
 import { PairingScreen } from '../screens/PairingScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import type { MainTabParamList, RootStackParamList } from './types';
@@ -17,6 +18,7 @@ const TAB_ICONS: Record<
   { on: keyof typeof Ionicons.glyphMap; off: keyof typeof Ionicons.glyphMap }
 > = {
   Chat: { on: 'chatbubbles', off: 'chatbubbles-outline' },
+  Conversations: { on: 'albums', off: 'albums-outline' },
   Pair: { on: 'qr-code', off: 'qr-code-outline' },
   Settings: { on: 'settings', off: 'settings-outline' },
 };
@@ -43,6 +45,11 @@ function MainTabs() {
     >
       <Tab.Screen name="Chat" component={ChatScreen} options={{ title: 'Chat' }} />
       <Tab.Screen
+        name="Conversations"
+        component={ConversationsScreen}
+        options={{ title: 'Conversations' }}
+      />
+      <Tab.Screen
         name="Pair"
         component={PairingScreen}
         options={{ title: 'Pair', headerShown: false }}
@@ -52,11 +59,20 @@ function MainTabs() {
   );
 }
 
-export function RootNavigator() {
+export type RootNavProps = {
+  /** First stack screen: Onboarding on a first launch, Main for returning
+   * users (already paired or already past onboarding). */
+  initialRouteName?: 'Onboarding' | 'Main';
+};
+
+export function RootNavigator({ initialRouteName = 'Onboarding' }: RootNavProps) {
   const t = useTheme();
   return (
     <NavigationContainer theme={navigationTheme(t.colors, t.isDark)}>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Navigator
+        initialRouteName={initialRouteName}
+        screenOptions={{ headerShown: false }}
+      >
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         <Stack.Screen name="Main" component={MainTabs} />
       </Stack.Navigator>
