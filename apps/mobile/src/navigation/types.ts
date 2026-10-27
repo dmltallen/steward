@@ -1,7 +1,10 @@
 import type { NavigatorScreenParams } from '@react-navigation/native';
 
 export type MainTabParamList = {
-  Chat: undefined;
+  /** conversationId: number opens that conversation, null starts a fresh one,
+   * absent recovers the last one (cached when offline). */
+  Chat: { conversationId?: number | null } | undefined;
+  Conversations: undefined;
   Pair: undefined;
   Settings: undefined;
 };

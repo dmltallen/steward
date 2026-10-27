@@ -11,6 +11,8 @@ import { Button } from '../components/Button';
 import { ProgressDots } from '../components/ProgressDots';
 import { StewardText } from '../components/StewardText';
 import { haptic } from '../lib/haptics';
+import { rnStorage } from '../lib/storage';
+import { KEYS } from '../lib/cache';
 
 type Slide = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -107,6 +109,7 @@ export function OnboardingScreen({ navigation }: Props) {
                 label="Skip"
                 onPress={() => {
                   haptic.light();
+                  void rnStorage.setItem(KEYS.seenOnboarding, '1');
                   navigation.replace('Main');
                 }}
               />
@@ -121,6 +124,7 @@ export function OnboardingScreen({ navigation }: Props) {
               onPress={() => {
                 if (isLast) {
                   haptic.success();
+                  void rnStorage.setItem(KEYS.seenOnboarding, '1');
                   navigation.replace('Main');
                 } else {
                   setIndex(index + 1);

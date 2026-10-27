@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { MainTabParamList } from '../navigation/types';
@@ -9,30 +9,111 @@ import { Card } from '../components/Card';
 import { ListRow } from '../components/ListRow';
 import { Button } from '../components/Button';
 import { haptic } from '../lib/haptics';
-import { config, LicenseTier } from '../config';
+import { rnStorage, secureTokenStore } from '../lib/storage';
+import { ConversationCache } from '../lib/cache';
+import { SessionManager } from '../lib/session';
+import { StewardClient, StewardError } from '../lib/client';
+import { useSession } from '../hooks/useSession';
+import { sessionStore } from '../lib/sessionStore';
+import { config } from '../config';
+import type { HealthInfo, LicenseReport } from '../lib/types';
 
 type Props = BottomTabScreenProps<MainTabParamList, 'Settings'>;
-
-const PERPETUAL_PRICE = 'One-time $79 · $0 per month · no subscription';
 
 export function SettingsScreen({ navigation }: Props) {
   const t = useTheme();
   const c = t.colors;
-  const [tier, setTier] = useState<LicenseTier>('free-eval');
-  const [upgradeOpen, setUpgradeOpen] = useState(false);
-  const perpetual = tier === 'perpetual';
+  const session = useSession();
 
-  const unlockPerpetual = () => {
-    setTier('perpetual');
-    setUpgradeOpen(false);
-    haptic.success();
-  };
+  const cache = useMemo(() => new ConversationCache(rnStorage), []);
+  const sessions = useMemo(() => new SessionManager(rnStorage, secureTokenStore), []);
+  const client = useMemo(
+    () => (session ? StewardClient.fromSession(session, cache) : null),
+    [session, cache],
+  );
+
+  const [license, setLicense] = useState<LicenseReport | null>(null);
+  const [health, setHealth] = useState<HealthInfo | null>(null);
+  const [licenseLoading, setLicenseLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!client) return;
+    setLicenseLoading(true);
+    try {
+      const [licenseReport, healthInfo] = await Promise.all([
+        client.license(),
+        client.health(),
+      ]);
+      setLicense(licenseReport);
+      setHealth(healthInfo);
+    } catch {
+      // nothing to set: the cards show the not-paired / offline states
+    } finally {
+      setLicenseLoading(false);
+    }
+  }, [client]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const unpair = useCallback(async () => {
+    await sessions.clear();
+    sessionStore.set(null);
+    setLicense(null);
+    setHealth(null);
+    haptic.warning();
+  }, [sessions]);
+
+  if (!session) {
+    return (
+      <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
+        <Card elevated style={styles.licenseCard}>
+          <View style={styles.licenseTop}>
+            <View style={[styles.badge, { backgroundColor: c.brandContainer }]}>
+              <Ionicons name="infinite-outline" size={15} color={c.brandStrong} />
+              <StewardText variant="caption" color={c.brandStrong}>
+                PERPETUAL
+              </StewardText>
+            </View>
+          </View>
+          <StewardText variant="headline">Steward is yours to own.</StewardText>
+          <StewardText variant="body" secondary style={styles.licenseBody}>
+            A perpetual license with a single one-time price. Own the software
+            outright, get every update, and never face a subscription to
+            cancel. No subscription, now or ever.
+          </StewardText>
+        </Card>
+
+        <View style={styles.section}>
+          <Button
+            label="Pair a daemon"
+            icon="qr-code-outline"
+            onPress={() => navigation.navigate('Pair')}
+          />
+        </View>
+
+        <View style={styles.section}>
+          <StewardText variant="caption" tertiary style={styles.sectionLabel}>ABOUT</StewardText>
+          <Card>
+            <ListRow icon="sparkles-outline" title={config.appName} subtitle={config.appTagline} />
+            <ListRow icon="information-circle-outline" title="App version" right={config.version} />
+            <ListRow icon="server-outline" title="Daemon" subtitle="Not paired" right="-" />
+          </Card>
+        </View>
+
+        <StewardText variant="caption" tertiary align="center" style={styles.foot}>
+          Steward never runs a subscription. Your data stays on your hardware.
+        </StewardText>
+      </ScrollView>
+    );
+  }
+
+  const perpetual = license?.state === 'perpetual';
+  const daemonLabel = `${session.host}:${session.port}`;
 
   return (
-    <ScrollView
-      style={{ backgroundColor: c.bg }}
-      contentContainerStyle={styles.content}
-    >
+    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
       <Card elevated style={styles.licenseCard}>
         <View style={styles.licenseTop}>
           <View style={[styles.badge, { backgroundColor: c.brandContainer }]}>
@@ -45,77 +126,95 @@ export function SettingsScreen({ navigation }: Props) {
               {perpetual ? 'PERPETUAL' : 'FREE EVAL'}
             </StewardText>
           </View>
+          {licenseLoading ? (
+            <ActivityIndicator size="small" color={c.brand} style={styles.licenseSpinner} />
+          ) : null}
         </View>
         <StewardText variant="headline">
-          {perpetual ? 'You own Steward.' : 'Try Steward free.'}
-        </StewardText>
-        <StewardText variant="body" secondary style={styles.licenseBody}>
           {perpetual
-            ? 'Perpetual license, one-time purchase, all updates included. No subscription now or ever.'
-            : 'A time-limited evaluation with full features. Unlock the perpetual license once, keep it forever.'}
+            ? 'You own Steward.'
+            : license?.state === 'free-eval'
+              ? 'Try Steward free.'
+              : 'License status'}
         </StewardText>
+        {license?.state === 'perpetual' ? (
+          <StewardText variant="body" secondary style={styles.licenseBody}>
+            {license.info.label || 'Perpetual license, one-time purchase, all updates included. No subscription now or ever.'}
+          </StewardText>
+        ) : license?.state === 'free-eval' ? (
+          <StewardText variant="body" secondary style={styles.licenseBody}>
+            {license.info.label || 'A time-limited evaluation with full features. One-time perpetual upgrade when you are ready. No subscription.'}
+          </StewardText>
+        ) : license?.state === 'not-served' ? (
+          <StewardText variant="body" secondary style={styles.licenseBody}>
+            This daemon version does not serve /v1/license yet, so it cannot
+            report a tier. Steward is a perpetual-license product: one-time
+            price, all updates included, no subscription now or ever.
+          </StewardText>
+        ) : (
+          <StewardText variant="body" secondary style={styles.licenseBody}>
+            License status is unavailable right now (daemon unreachable or not
+            reporting). Steward is a perpetual-license product: no
+            subscription now or ever.
+          </StewardText>
+        )}
         <StewardText variant="label" color={c.brand}>
-          {PERPETUAL_PRICE}
+          One-time price, no subscription
         </StewardText>
       </Card>
 
       <View style={styles.section}>
-        {!perpetual ? (
-          <Button
-            label="Unlock perpetual license"
-            icon="key-outline"
-            onPress={() => {
-              haptic.medium();
-              setUpgradeOpen(true);
-            }}
-          />
-        ) : (
-          <Button
-            label="License active"
-            icon="checkmark-circle-outline"
-            disabled
-          />
-        )}
-      </View>
-
-      <View style={styles.section}>
-        <StewardText variant="caption" tertiary style={styles.sectionLabel}>
-          CONNECTION
-        </StewardText>
+        <StewardText variant="caption" tertiary style={styles.sectionLabel}>CONNECTION</StewardText>
         <Card>
           <ListRow
             icon="qr-code-outline"
             title="Pair a daemon"
-            subtitle="Scan or enter the pairing code"
-            right="LAN"
+            subtitle={daemonLabel}
+            right="paired"
             onPress={() => navigation.navigate('Pair')}
           />
           <ListRow
             icon="server-outline"
             title="Daemon address"
-            subtitle={config.daemonUrl}
-            right="env"
+            subtitle={daemonLabel}
+            right={health?.ok === false ? 'offline' : 'LAN'}
           />
           <ListRow
             icon="shield-checkmark-outline"
             title="Local only"
             subtitle="No cloud relay, ever"
           />
+          <ListRow
+            icon="link-outline"
+            title="Unpair this phone"
+            subtitle="Forget the token stored on this device"
+            destructive
+            onPress={() => void unpair()}
+          />
         </Card>
       </View>
 
       <View style={styles.section}>
-        <StewardText variant="caption" tertiary style={styles.sectionLabel}>
-          ABOUT
-        </StewardText>
+        <StewardText variant="caption" tertiary style={styles.sectionLabel}>ABOUT</StewardText>
         <Card>
           <ListRow icon="sparkles-outline" title={config.appName} subtitle={config.appTagline} />
-          <ListRow icon="information-circle-outline" title="Version" right={config.version} />
+          <ListRow icon="information-circle-outline" title="App version" right={config.version} />
           <ListRow
-            icon="document-text-outline"
-            title="License"
-            subtitle={perpetual ? 'Perpetual, one-time' : 'Free evaluation'}
-            right={perpetual ? 'Active' : 'Eval'}
+            icon="server-outline"
+            title="Daemon version"
+            right={health?.version ?? 'not reported'}
+          />
+          <ListRow
+            icon="cube-outline"
+            title="Backend"
+            subtitle={health?.backend ?? 'not reported'}
+            right={health?.modelResident ? 'model resident' : undefined}
+          />
+          <ListRow
+            icon="layers-outline"
+            title="Model"
+            subtitle="Also shown in chat"
+            right={health?.model ?? 'not reported'}
           />
         </Card>
       </View>
@@ -123,34 +222,6 @@ export function SettingsScreen({ navigation }: Props) {
       <StewardText variant="caption" tertiary align="center" style={styles.foot}>
         Steward never runs a subscription. Your data stays on your hardware.
       </StewardText>
-
-      <Modal
-        visible={upgradeOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setUpgradeOpen(false)}
-      >
-        <Pressable style={styles.backdrop} onPress={() => setUpgradeOpen(false)}>
-          <Pressable onPress={() => {}}>
-            <Card elevated style={styles.modal}>
-              <StewardText variant="headline">Unlock perpetual</StewardText>
-              <StewardText variant="body" secondary style={styles.licenseBody}>
-                One-time purchase, owns the software forever. All future updates
-                included. Stub upgrade path: the payment step connects in a
-                later sprint. Tapping unlock activates the perpetual state.
-              </StewardText>
-              <View style={styles.modalActions}>
-                <Button label="Unlock (stub)" icon="key-outline" onPress={unlockPerpetual} />
-                <Button
-                  variant="ghost"
-                  label="Not now"
-                  onPress={() => setUpgradeOpen(false)}
-                />
-              </View>
-            </Card>
-          </Pressable>
-        </Pressable>
-      </Modal>
     </ScrollView>
   );
 }
@@ -158,7 +229,8 @@ export function SettingsScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   content: { padding: 24, paddingTop: 20, paddingBottom: 48, gap: 22 },
   licenseCard: { gap: 10 },
-  licenseTop: { flexDirection: 'row', justifyContent: 'flex-start' },
+  licenseTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  licenseSpinner: { marginRight: 2 },
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -171,13 +243,4 @@ const styles = StyleSheet.create({
   section: { gap: 10 },
   sectionLabel: { marginLeft: 4 },
   foot: { marginTop: 8 },
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 28,
-  },
-  modal: { width: '100%', gap: 12 },
-  modalActions: { gap: 10, marginTop: 6 },
 });
