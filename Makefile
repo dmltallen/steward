@@ -32,10 +32,21 @@ endif
 .PHONY: build-linux build-deb deb-dpkg build-win clean venv-nfpm publish-assets
 
 # --- environment ----------------------------------------------------------
+# Venv bootstrap. Debian's python3 -m venv can produce a venv without pip
+# (ensurepip is a separate package), which failed a fresh build here; uv does
+# the same job without that dependency, so prefer it when present.
+UV := $(shell command -v uv 2>/dev/null)
 $(PYINSTALLER):
-	python3 -m venv $(VENV)
-	$(PYTHON) -m pip install --quiet --upgrade pip
-	$(PYTHON) -m pip install --quiet pyinstaller cryptography
+	@if [ -n "$(UV)" ]; then \
+		echo "==> creating $(VENV) with uv"; \
+		$(UV) venv --quiet $(VENV); \
+		$(UV) pip install --quiet --python $(PYTHON) pyinstaller cryptography; \
+	else \
+		echo "==> creating $(VENV) with python3 -m venv"; \
+		python3 -m venv $(VENV); \
+		$(PYTHON) -m pip install --quiet --upgrade pip; \
+		$(PYTHON) -m pip install --quiet pyinstaller cryptography; \
+	fi
 
 $(NFPM_VENV):
 	@mkdir -p $(VENV)/bin
