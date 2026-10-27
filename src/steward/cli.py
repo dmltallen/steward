@@ -42,7 +42,7 @@ def _package_version() -> str:
     return "0.1.0"
 
 
-def _doctor() -> int:
+def _doctor(args) -> int:
     from . import paths
     from .compat import verdict
     from .config import Config
@@ -82,6 +82,14 @@ def _doctor() -> int:
                           + ", ".join(health.get("searched_paths") or []))
     except Exception as exc:  # noqa: BLE001 - doctor must never traceback
         print(f"backend:   {rt.kind} DEGRADED: {exc}")
+    if getattr(args, "bundle", None):
+        from pathlib import Path
+
+        from .diagnostics import build_bundle
+        out = build_bundle(Path(args.bundle), runtime=rt)
+        print(f"bundle:    {out}")
+        print("Send this file to steward support; it contains no tokens, "
+              "keys, or personal names.")
     return 0
 
 
@@ -165,7 +173,11 @@ def _version() -> int:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="steward")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("doctor", help="hardware, bundle, backend mode, model, data dir")
+    p_doctor = sub.add_parser("doctor", help="hardware, bundle, backend mode, model, data dir")
+    p_doctor.add_argument(
+        "--bundle", metavar="PATH",
+        help="write a redacted support bundle zip to PATH and print its location",
+    )
     sub.add_parser("plan", help="auto-selected model bundle")
     sub.add_parser("check", help="what this machine can run, in plain English")
     sub.add_parser("wizard", help="first-run setup wizard")
@@ -173,7 +185,7 @@ def main(argv=None) -> int:
     sub.add_parser("version", help="print the package version")
     args = parser.parse_args(argv)
     if args.cmd == "doctor":
-        return _doctor()
+        return _doctor(args)
     if args.cmd == "plan":
         _plan()
     elif args.cmd == "check":
