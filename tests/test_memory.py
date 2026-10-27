@@ -407,8 +407,11 @@ def test_build_brief_with_stub_runtime_stores_brief(tmp_path):
     assert "payments are due Monday" in joined
     assert "\u2014" not in joined
 
-    # the query asked about what is due or changed
+    # the query asks about what is due or changed and includes the date
     assert any("due or changed" in q for q in index.queries)
+    assert "2026-10-26" in index.queries
+    # the date query is not duplicated
+    assert index.queries.count("2026-10-26") == 1
 
 
 def test_build_brief_with_fake_server_through_runtime_seam(tmp_path):

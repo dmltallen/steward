@@ -39,7 +39,6 @@ backfilled into a day whose window has already passed.
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import threading
 import time
@@ -50,7 +49,6 @@ from typing import Callable
 from steward.paths import data_root
 
 from .memory.brief import DEFAULT_INSTRUCTION
-from .memory.store import utc_now as _utc_now
 
 DEFAULT_TICK_S = 60.0
 DEFAULT_MODEL = "qwen3:8b"

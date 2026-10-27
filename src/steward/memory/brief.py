@@ -32,6 +32,11 @@ from .store import MemoryStore
 
 DEFAULT_MODEL = "qwen3:8b"
 DEFAULT_HIT_LIMIT = 6
+# Generation calls through the runtime seam may take tens of seconds (cold
+# model load plus a long brief prompt), so the runtime the brief creates for
+# itself gets a long transport timeout instead of the 8s default. A runtime
+# passed in by the caller keeps the caller's timeout.
+GEN_TIMEOUT_S = 180.0
 
 DEFAULT_INSTRUCTION = (
     "Write a short morning brief in plain English. Lead with anything due today "
@@ -45,12 +50,20 @@ def _fmt_date(day: Date) -> str:
     return day.isoformat()
 
 
-def _retrieval_queries(scope: str) -> list[str]:
+def _retrieval_queries(scope: str, day: Date) -> list[str]:
     scope = (scope or "").strip()
     queries = ["what is due or changed"]
+    # The concrete date ranks today's and yesterday's logs highest, which is
+    # where actual due/changed content lives; a bare phrase tends to land on
+    # old review notes whose wording mentions change.
+    queries.append(day.isoformat())
     if scope and scope not in ("today", "daily", "all"):
         queries.append(scope)
-    return queries
+    seen: list[str] = []
+    for q in queries:
+        if q not in seen:
+            seen.append(q)
+    return seen
 
 
 def assemble_brief_prompt(day: Date, scope: str, *,
@@ -112,7 +125,9 @@ def assemble_brief_prompt(day: Date, scope: str, *,
 
     sections.append(
         "Write the brief now. It will be shown at the top of the day. "
-        "Never use em dashes. Do not invent any fact that is not in the inputs."
+        "Use ASCII punctuation only (straight apostrophes and quotes, never "
+        "curly typographic marks). Never use em dashes. Do not invent any "
+        "fact that is not in the inputs."
     )
 
     system = (
@@ -172,7 +187,9 @@ def build_brief(date=None, scope: str = "today", *,
         day = datetime.now().astimezone().date()
 
     store = store if store is not None else MemoryStore(Path(data_dir) / "db" / "memory.db")
-    runtime = runtime if runtime is not None else make_runtime(cfg)
+    if runtime is None:
+        runtime = make_runtime(cfg)
+        runtime.timeout = GEN_TIMEOUT_S
     model = model or cfg.model or DEFAULT_MODEL
 
     raw_events, calendar_errors = ics_mod.load_calendar_events(root=data_dir)
@@ -181,7 +198,7 @@ def build_brief(date=None, scope: str = "today", *,
     if index is None:
         index = _default_index(data_dir)
     raw_hits = []
-    for query in _retrieval_queries(scope):
+    for query in _retrieval_queries(scope, day):
         try:
             raw_hits.append(index.search(query, k=4))
         except Exception:  # noqa: BLE001 - a broken index contributes no hits
