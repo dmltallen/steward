@@ -8,6 +8,7 @@ Environment variables win over the file on every load:
     STEWARD_MODEL        served assistant model id
     STEWARD_OLLAMA_URL   backend base URL for SystemOllama
     STEWARD_OLLAMA_BIN   managed-sidecar binary (see runtime.py)
+    STEWARD_OTA_URL      update source override (default: the released one)
     STEWARD_HOME         data root, controls where config.json lives
 
 Persisted fields and defaults:
@@ -20,6 +21,8 @@ Persisted fields and defaults:
     telemetry       false          (always false, forced on load)
     allow_shell     false
     retrieval_dirs  []
+    ota_url         DEFAULT_OTA_URL (the released update source; a consumer
+                    never sets an env var for a normal install)
 
 Writes are atomic: a temp file in the same directory is fsynced and renamed
 over the target, and the file is never left world-readable (0o600). Import
@@ -40,11 +43,21 @@ import steward.paths as paths
 DEFAULT_PORT = 3877
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
 
+# The released update source: the signed update manifest that release builds
+# publish into the repo's releases/ dir. STEWARD_OTA_URL overrides it; an
+# operator can also pin a different source in <data>/config.json. Reaching
+# it is never required for a normal start: an unreachable source records a
+# status on the daemon instead of failing the unit.
+DEFAULT_OTA_URL = (
+    "https://github.com/dmltallen/steward/raw/branch/master/releases/update.json"
+)
+
 _PORT_ENV = "STEWARD_PORT"
 _ENV_TO_ATTR = {
     "STEWARD_MODEL": "model",
     "STEWARD_OLLAMA_URL": "ollama_url",
     "STEWARD_OLLAMA_BIN": "ollama_bin",
+    "STEWARD_OTA_URL": "ota_url",
 }
 
 
@@ -60,6 +73,7 @@ class Config:
     telemetry: bool = False
     allow_shell: bool = False
     retrieval_dirs: list = field(default_factory=list)
+    ota_url: str = DEFAULT_OTA_URL
 
     def to_dict(self) -> dict:
         return {
@@ -71,6 +85,7 @@ class Config:
             "telemetry": self.telemetry,
             "allow_shell": self.allow_shell,
             "retrieval_dirs": list(self.retrieval_dirs),
+            "ota_url": self.ota_url,
         }
 
     @classmethod
@@ -84,6 +99,7 @@ class Config:
             "telemetry": bool,
             "allow_shell": bool,
             "retrieval_dirs": list,
+            "ota_url": str,
         }
         out: dict = {}
         for key, cast in known.items():

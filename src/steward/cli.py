@@ -10,6 +10,7 @@ Commands:
     steward serve     run the local daemon (delegates to server/daemon.py)
     steward license   activate a signed perpetual license, print tier status
     steward ota       signed model-catalog updates: check, apply, status
+    steward update    signed app + catalog updates: check, apply (schema v2)
     steward version   print the package version
 
 The compatibility verdict (compat.py) is computed first and fed to the
@@ -45,6 +46,14 @@ def _package_version() -> str:
         except Exception:
             continue
     return "0.1.0"
+
+
+_SUB_HANDLERS = {"license": "_license_cmd", "ota": "_ota_cmd",
+                 "update": "_update_cmd"}
+
+
+def _nested_handler(name: str):
+    return globals()[_SUB_HANDLERS[name]]
 
 
 def _doctor(args) -> int:
@@ -266,12 +275,84 @@ def _ota_cmd(argv) -> int:
     return 1
 
 
+def _update_cmd(argv) -> int:
+    from . import ota as ota_mod
+    parser = argparse.ArgumentParser(prog="steward update")
+    sub = parser.add_subparsers(dest="update_cmd", required=True)
+    chk = sub.add_parser("check", help="check for a signed app + catalog update")
+    chk.add_argument("--source", default="",
+                     help="manifest URL or path (default: the released source)")
+    aply = sub.add_parser("apply", help="download and apply a signed update "
+                                        "with rollback")
+    aply.add_argument("--source", default="")
+    aply.add_argument("--no-app", action="store_true",
+                      help="apply the catalog only, skip the app payload")
+    args = parser.parse_args(argv)
+    source = args.source or ota_mod.resolve_source()
+
+    if args.update_cmd == "check":
+        info = ota_mod.startup_check_status(source=source)
+        if info["state"] != "ok":
+            print("update check %s: %s" % (info["state"], info.get("error") or "no source"))
+            return 1
+        cat, app = info["catalog"], info["app"]
+        print("catalog:  %s -> %s (%d models)%s" % (
+            cat["current_version"], cat["latest_version"], cat["model_count"],
+            " [AVAILABLE]" if cat["available"] else ""))
+        if app.get("latest_version"):
+            payload_note = app["notes_url"] or app["notes"] or ""
+            print("app:      %s -> %s%s%s" % (
+                app["current_version"], app["latest_version"],
+                " [AVAILABLE]" if app["available"] else " (not available)",
+                ("  " + payload_note) if payload_note else ""))
+        else:
+            print("app:      manifest carries no app payload for update")
+        print("source:   %s" % info["source"])
+        return 0
+
+    try:
+        doc = ota_mod.fetch_document(source)
+        payload = ota_mod.verify_manifest(doc)
+        staged = None
+        if payload.get("app") is not None and not args.no_app:
+            staged = ota_mod.stage_app_payload(doc, source=source)
+            if not staged["staged"]:
+                print("app payload not staged: %s" % staged["reason"])
+        probe = (ota_mod.app_binary_probe(staged["path"], staged["version"])
+                 if staged is not None and staged["staged"]
+                 else ota_mod.backend_health_probe())
+        result = ota_mod.apply_update(doc, health_probe=probe)
+    except ota_mod.OtaError as exc:
+        print("refused: %s" % exc)
+        return 1
+    except Exception as exc:  # noqa: BLE001 - a person reads this, not a traceback
+        print("update failed: %s" % exc)
+        return 1
+    if result["applied"]:
+        print("applied catalog %s" % result["version"])
+        app = result.get("app")
+        if app and app.get("installed"):
+            print("applied app %s (%s, %s)" % (
+                app["version"], app["platform"], app["binary"]))
+        else:
+            print("app:      no app install in this apply (%s)"
+                  % ((app or {}).get("reason") or "catalog only"))
+        return 0
+    print("NOT applied: %s" % (result.get("reason") or "unknown"))
+    if result.get("rolled_back"):
+        print("rolled back to the previous app and catalog")
+    elif result.get("app"):
+        app_reason = (result["app"] or {}).get("reason")
+        print("app:      %s" % (app_reason or "not applied"))
+    return 1
+
+
 def main(argv=None) -> int:
-    # license and ota get their own nested parsers; route them before the
-    # outer argparse, which would reject their subcommand tokens.
+    # license, ota and update get their own nested parsers; route them before
+    # the outer argparse, which would reject their subcommand tokens.
     tokens = sys.argv[1:] if argv is None else list(argv)
-    if tokens and tokens[0] in ("license", "ota"):
-        handler = _license_cmd if tokens[0] == "license" else _ota_cmd
+    if tokens and tokens[0] in ("license", "ota", "update"):
+        handler = _nested_handler(tokens[0])
         return handler(tokens[1:])
 
     parser = argparse.ArgumentParser(prog="steward")
@@ -309,6 +390,7 @@ def main(argv=None) -> int:
     sub.add_parser("version", help="print the package version")
     sub.add_parser("license", help="perpetual license: activate, status")
     sub.add_parser("ota", help="signed catalog updates: check, apply, status")
+    sub.add_parser("update", help="signed app + catalog updates: check, apply")
     args = parser.parse_args(argv)
     if args.cmd == "doctor":
         return _doctor(args)
