@@ -29,7 +29,18 @@ Bearer-required (Authorization: Bearer <token>):
     GET  /v1/approvals        pending + decided tool approvals (S9)
     POST /v1/approvals/{id}   {decision|approve} decides a pending approval
     GET  /doctor/bundle       build a redacted support bundle (S12)
+    GET  /v1/update/check     fetch, verify and report catalog + app updates
+    POST /v1/update/apply     download, verify, apply an update with rollback
     GET  / , /index.html , /app.js , /style.css + /v1/webapp/*  (S5 webapp)
+
+Update routing: /v1/update/check and /v1/update/apply are bearer-required
+(same gate as every other data/mutating route). The check also runs once at
+daemon start in a background thread and the result is recorded on the
+daemon; an unreachable update source is a normal start with a recorded
+status, never a failed unit. There is no timer, no systemd unit and no
+separate updater process: the check runs at boot and when a client asks.
+The update source is the released config default (or STEWARD_OTA_URL), so a
+consumer never has to set an env var.
 
 Conversations and messages persist in SQLite at <data>/db/steward.db (WAL).
 Pass conversation_id to /v1/chat or /chat to record both turns in the store.
@@ -56,6 +67,7 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -197,6 +209,26 @@ class DaemonContext:
         self.memory_store = MemoryStore(data_root / "db" / "memory.db")
         self.approval_manager = ApprovalManager(data_root / "db" / "approvals.db")
         self.approvals_handle = approvals_router(self.approval_manager)
+        # OTA update state: the source (config default or STEWARD_OTA_URL) and
+        # the last check result, both read/written under one lock. The startup
+        # check fills update_status at boot; every check/apply records fresh.
+        self.ota_source = ""
+        self.update_status = {
+            "state": "pending", "ok": None, "available": False,
+            "checked_at": None, "source": None, "error": None,
+        }
+        self._update_lock = threading.Lock()
+
+    def record_update_status(self, result: dict) -> None:
+        with self._update_lock:
+            self.update_status = dict(result)
+
+    def update_source(self) -> str:
+        """The effective update source, resolved once from config/env."""
+        if not self.ota_source:
+            from steward import ota as ota_mod
+            self.ota_source = ota_mod.resolve_source()
+        return self.ota_source
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -305,6 +337,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             status, payload = self.ctx.approvals_handle("GET", parts)
             self._json(status, payload)
+        elif path == "/v1/update/check":
+            if self._require_auth() is None:
+                return
+            self._handle_update_check()
         elif path == "/v1/briefs":
             if self._require_auth() is None:
                 return
@@ -363,6 +399,14 @@ class Handler(BaseHTTPRequestHandler):
             status, payload = self.ctx.approvals_handle(
                 "POST", parts, body=self._read_json())
             self._json(status, payload)
+        elif path == "/v1/update/apply":
+            # Mutating, so gated like every other mutating route: a valid
+            # bearer token is required (see S5/S9 route gating). The strongest
+            # gate is cryptographic: a tampered manifest or payload is refused
+            # regardless of who calls, before anything is written.
+            if self._require_auth() is None:
+                return
+            self._handle_update_apply()
         else:
             self._json(404, {"error": "not found"})
 
@@ -655,6 +699,82 @@ class Handler(BaseHTTPRequestHandler):
         self._json(200, {"ok": True, "bundle": str(path), "members": members,
                          "bytes": path.stat().st_size})
 
+    # -- update routes (OTA, schema v2) -----------------------------------------
+
+    def _data_root_path(self) -> Path:
+        return Path(self.ctx.db_path).resolve().parent.parent
+
+    def _ota_failure_state(self, exc: Exception) -> str:
+        """Classify an OTA failure: a signature/shape/checksum refusal vs an
+        operational error (unreachable source, download glitch). Both come
+        back as a structured 200 so the client shows the real reason instead
+        of a dead screen; only the label differs."""
+        names = {"SignatureError", "ManifestSignatureError", "MalformedLicense",
+                 "MalformedManifest", "ChecksumError", "ChecksumMismatch"}
+        return "refused" if type(exc).__name__ in names else "error"
+
+    def _handle_update_check(self) -> None:
+        """GET /v1/update/check: fetch, verify and report catalog + app updates.
+
+        Bearer-required like every data route. A tampered manifest comes back
+        as a refused state, an unreachable source as an error state; neither
+        is a server failure. The result is recorded so the daemon can report
+        what the last check found.
+        """
+        from steward import ota as ota_mod
+        root = self._data_root_path()
+        source = self.ctx.update_source()
+        try:
+            result = ota_mod.check_update(source=source, root=root)
+            result["state"] = "ok"
+        except Exception as exc:  # noqa: BLE001 - every source outcome is a status
+            result = {"ok": False, "state": self._ota_failure_state(exc),
+                      "error": str(exc), "source": source}
+        result["checked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        self.ctx.record_update_status(result)
+        self._json(200, result)
+
+    def _handle_update_apply(self) -> None:
+        """POST /v1/update/apply: download, verify and apply with rollback.
+
+        Bearer-required (mutating, like the other mutating routes). Flow:
+        fresh fetch + signature check (a tampered manifest is refused before
+        anything is written), then app payload staging through steward.download
+        (sha256 enforced, resumable), then apply_update whose atomic pointer
+        rename is the commit point and whose health probe restores the previous
+        app binary on failure.
+        """
+        from steward import ota as ota_mod
+        root = self._data_root_path()
+        source = self.ctx.update_source()
+        try:
+            doc = ota_mod.fetch_document(source)
+            payload = ota_mod.verify_manifest(doc)   # tampered == refused here
+            staged = None
+            if payload.get("app") is not None:
+                staged = ota_mod.stage_app_payload(doc, source=source, root=root)
+                if not staged["staged"]:
+                    self._json(200, {"ok": False, "state": "refused",
+                                     "error": staged["reason"], "source": source})
+                    return
+            probe = (ota_mod.app_binary_probe(staged["path"], staged["version"])
+                     if staged is not None and staged["staged"]
+                     else ota_mod.backend_health_probe(self.ctx.model))
+            result = ota_mod.apply_update(doc, health_probe=probe, root=root,
+                                          timeout=ota_mod.APPLY_PROBE_TIMEOUT_S)
+            result["ok"] = bool(result.get("applied"))
+            result["rolled_back"] = bool(result.get("rolled_back"))
+            result["source"] = source
+            result["state"] = ("applied" if result["ok"]
+                               else "rolled_back" if result["rolled_back"]
+                               else "noop")
+            self.ctx.record_update_status(result)
+            self._json(200, result)
+        except Exception as exc:  # noqa: BLE001 - OTA refusal/error is a body
+            self._json(200, {"ok": False,
+                             "state": self._ota_failure_state(exc),
+                             "error": str(exc), "source": source})
+
 
 class StewardServer(ThreadingHTTPServer):
     daemon_threads = True
@@ -717,6 +837,31 @@ def create_server(addr, *, runtime, model: str = DEFAULT_MODEL,
                          host_ip=host_ip)
 
 
+def run_startup_update_check(ctx: DaemonContext) -> dict:
+    """One-shot update check at daemon boot; records status and never raises.
+
+    Spawned as a daemon thread so a slow or unreachable source never blocks
+    serve_forever: an unreachable source is a normal start with a recorded
+    status (`ctx.update_status`), never a failed unit. No timer, no systemd
+    unit, no separate updater process; clients can still ask for a fresh
+    check on demand via GET /v1/update/check.
+    """
+    from steward import ota as ota_mod
+    root = Path(ctx.db_path).resolve().parent.parent
+    source = ctx.update_source()
+    result = ota_mod.startup_check_status(source=source, root=root)
+    ctx.record_update_status(result)
+    ok = result.get("ok") is True and result.get("state") == "ok"
+    if ok:
+        latest = ((result.get("app") or {}).get("latest_version")
+                  or (result.get("catalog") or {}).get("latest_version") or "?")
+        print("  update: ok, newest version %s" % latest)
+    else:
+        print("  update: recorded %s (%s)"
+              % (result.get("state"), result.get("error") or "no source"))
+    return result
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="steward serve", description=__doc__)
     parser.add_argument("--host", default=_env("STEWARD_HOST", DEFAULT_HOST))
@@ -763,6 +908,16 @@ def main(argv=None) -> int:
         print(f"  WARNING scheduler failed to start: {exc}")
 
     ctx = server.ctx
+    # OTA source from the released config (or STEWARD_OTA_URL), then a
+    # one-shot background check at boot. The boot check records its status on
+    # the daemon and never blocks or fails startup, even when the source is
+    # unreachable or tampered.
+    ctx.ota_source = cfg.ota_url or ""
+    _upd_thread = threading.Thread(
+        target=run_startup_update_check, args=(ctx,),
+        daemon=True, name="steward-update-check",
+    )
+    _upd_thread.start()
     ip = ctx.host_ip
     port = ctx.port
     print(f"Steward daemon {VERSION} on {args.host}:{port}")

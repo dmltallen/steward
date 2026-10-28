@@ -1,47 +1,84 @@
-"""Signed OTA model-catalog updates for Steward.
+"""Signed OTA updates for Steward: the model catalog and the app itself.
 
-An update is a signed catalog manifest: a new versioned generation of the
-open-model catalog that replaces the embedded one. Model identity and the
+An update is a signed manifest envelope. Schema v2 adds an `app` block so
+one envelope carries both a new versioned generation of the open-model
+catalog and the Steward application payload for this host; a v1 manifest
+(no `app` block) verifies exactly as before. Model identity and the
 selector rules stay where they already live (models.py and selector.py are
-the single source); OTA only verifies, stages, and performs the atomic swap,
-then installs the verified generation into the in-memory catalog that the
-selector reads so nothing here re-implements selection.
+the single source); OTA verifies, stages, and performs the atomic swap for
+both halves.
 
-Manifest schema (Ed25519 envelope, same vendor key as licenses, see
+Manifest schema v2 (Ed25519 envelope, same vendor key as licenses, see
 steward.license):
 
     {
       "payload": {
-        "version":     "2026-10-26.1",          # monotonic, lower than next
+        "version":     "2026-10-26.1",          # catalog version, monotonic
         "released":    "2026-10-26",
-        "app_version": "0.2.0",                 # app this catalog rides with
+        "app_version": "1.1.0",                 # app this catalog rides with
         "models": [ {id, family, params_b, active_b, q4_gb,
                      tok_range, license, kind, note}, ... ],
-        "blobs":   { "<filename>": "<sha256 hex>" }   # optional model files
+        "blobs":   { "<filename>": "<sha256 hex>" },   # optional model files
+        "app": {                                 # optional, schema v2
+          "version":            "1.1.0",         # semver, the app release
+          "released":           "2026-10-28",
+          "notes":              "What is new",   # or
+          "notes_url":          "https://.../CHANGELOG.md",  # notes | notes_url
+          "min_source_version": "1.0.0",         # oldest source that may install
+          "payloads": {
+            "linux-x86_64":   { "url": "steward_1.1.0_amd64.deb",
+                                "sha256": "<64 hex>", "size": 12345678 },
+            "linux-aarch64":  { ... },
+            "darwin-x86_64":  { ... },
+            "darwin-arm64":   { ... },
+            "windows-x86_64": { ... }
+          }
+        }
       },
       "alg": "ed25519",
       "sig": "<hex>"
     }
 
+`url` may be absolute (http/https) or relative; a relative url resolves
+against the directory of the manifest source. Platform keys are the lower-
+cased "<os>-<arch>" names normalized like detect(): linux-x86_64,
+linux-aarch64, darwin-x86_64, darwin-arm64, windows-x86_64. They are
+vendor-chosen in the manifest; this module matches the running platform
+against the exact keys it carries.
+
 On-disk active state lives under <data>/ota/:
 
-    catalog-<version>.json   one immutable file per version, written only
-                             after its signature verifies
-    current.json             the pointer: {active_catalog, app_version,
-                             hardware, plan, updated}. Replaced with a single
-                             atomic rename: that rename IS the commit point,
-                             so a kill mid-swap leaves the previous pointer
-                             (the old catalog) fully usable.
+    catalog-<version>.json   one immutable file per catalog version, written
+                             only after its signature verifies
+    app/<name>               immutable verified app payload files, one per
+                             applied release (written only after their sha
+                             verifies, first at staging then again at install)
     staging/<version>/       verified model blobs while downloading
+    staging/app/             verified app payload while downloading (via
+                             steward.download, resumable and cancelable)
+    current.json             the pointer: {active_catalog, app_version,
+                             hardware, plan, app, updated}. Replaced with a
+                             single atomic rename: that rename IS the commit
+                             point, so a kill mid-swap (between the app file
+                             write and the pointer commit) leaves the previous
+                             pointer - the old catalog AND the old app binary
+                             - fully usable.
 
 Rollback: after the pointer commits, a health probe runs against the new
-bundle; if it does not pass within APPLY_PROBE_TIMEOUT_S the pointer is
-restored to the previous value and the new catalog file is removed, so a
-bad bundle never stays active.
+bundle (for an app install it runs the new binary with `version` and
+requires the expected version back); if it does not pass within
+APPLY_PROBE_TIMEOUT_S the pointer is restored to the previous value, the
+new catalog file is removed, and the new app binary is removed, so the old
+app binary still answers.
 
 Re-selection on hardware change: each apply or status call records the
 detected hardware signature; when it differs from the stored one the
 canonical selector is re-run and the new plan is persisted.
+
+The update source comes from STEWARD_OTA_URL (override) or the released
+config default (config.ota_url); consumers never have to set an env var
+for a normal install. Daemon and CLI use the same check/apply functions
+here, so the HTTP route and `steward update check/apply` behave identically.
 """
 
 from __future__ import annotations
@@ -50,12 +87,17 @@ import datetime as _dt
 import hashlib
 import json
 import os
+import re
+import shutil
+import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Callable
 
+from . import download as _download
 from . import paths
 from .config import atomic_write_json
 
@@ -63,6 +105,7 @@ APPLY_PROBE_TIMEOUT_S = 90.0
 
 # An update source when no --url is given on the CLI.
 UPDATE_ENV = "STEWARD_OTA_URL"
+APP_DIR_NAME = "app"
 
 # Test seam: {step_name: callable} run at checkpoints inside apply_update().
 # A subprocess test uses it to kill the process mid-swap and prove the old
@@ -208,6 +251,46 @@ def _install_models(entries: list) -> list[str]:
 # Manifest verification
 # ---------------------------------------------------------------------------
 
+def _validate_app_block(app: dict) -> None:
+    """Type-check the optional v2 `app` block of a manifest payload."""
+    if not isinstance(app, dict):
+        raise MalformedManifest("app block must be a JSON object")
+    version = app.get("version")
+    if not isinstance(version, str) or not version:
+        raise MalformedManifest("app block must carry a version string")
+    min_source = app.get("min_source_version")
+    if min_source is not None and not isinstance(min_source, str):
+        raise MalformedManifest("app min_source_version must be a string")
+    has_notes = "notes" in app and isinstance(app["notes"], str) and bool(app["notes"])
+    has_url = "notes_url" in app and isinstance(app["notes_url"], str) and bool(app["notes_url"])
+    if not (has_notes or has_url):
+        raise MalformedManifest("app block must carry a non-empty notes or notes_url string")
+    for key in ("notes", "notes_url"):
+        if key in app and not isinstance(app[key], str):
+            raise MalformedManifest("app %s must be a string" % key)
+    payloads = app.get("payloads")
+    if payloads is not None:
+        if not isinstance(payloads, dict) or not payloads:
+            raise MalformedManifest("app payloads must be a non-empty object")
+        for plat, pl in payloads.items():
+            if not isinstance(pl, dict):
+                raise MalformedManifest("app payload for %r must be an object" % (plat,))
+            sha = pl.get("sha256")
+            if not isinstance(sha, str) or len(sha) != 64 \
+                    or any(c not in "0123456789abcdefABCDEF" for c in sha):
+                raise MalformedManifest(
+                    "app payload %r has a non-sha256 checksum" % (plat,))
+            url = pl.get("url")
+            if not isinstance(url, str) or not url:
+                raise MalformedManifest(
+                    "app payload %r is missing a url" % (plat,))
+            size = pl.get("size")
+            if size is not None and (not isinstance(size, int)
+                                     or isinstance(size, bool) or size < 0):
+                raise MalformedManifest(
+                    "app payload %r has an invalid size" % (plat,))
+
+
 def _validate_manifest_payload(payload: dict) -> None:
     if not isinstance(payload, dict):
         raise MalformedManifest("manifest payload must be a JSON object")
@@ -228,6 +311,9 @@ def _validate_manifest_payload(payload: dict) -> None:
         for name, sha in blobs.items():
             if not isinstance(sha, str) or len(sha) != 64:
                 raise MalformedManifest("blob %r has a non-sha256 checksum" % name)
+    app = payload.get("app")
+    if app is not None:
+        _validate_app_block(app)
 
 
 def verify_manifest(doc: dict, public_key_hex: str | None = None) -> dict:
@@ -236,6 +322,140 @@ def verify_manifest(doc: dict, public_key_hex: str | None = None) -> dict:
     payload = lic.verify_envelope(doc, public_key_hex)
     _validate_manifest_payload(payload)
     return payload
+
+
+# ---------------------------------------------------------------------------
+# Update source, versions, and platform matching (schema v2)
+# ---------------------------------------------------------------------------
+
+def resolve_source(env: dict | None = None) -> str:
+    """The update source: STEWARD_OTA_URL override, else the released default.
+
+    A consumer never sets an env var on a normal install; STEWARD_OTA_URL
+    is only an override. Reads the live config so an operator can pin a
+    different source in <data>/config.json.
+    """
+    env = os.environ if env is None else env
+    override = (env.get(UPDATE_ENV) or "").strip()
+    if override:
+        return override
+    from .config import DEFAULT_OTA_URL, Config
+    cfg = Config.load(env)
+    return (cfg.ota_url or "").strip() or DEFAULT_OTA_URL
+
+
+def installed_app_version() -> str:
+    """The app version this install reports today (package metadata)."""
+    try:
+        from . import __version__
+        return str(__version__ or "0.0.0")
+    except Exception:  # noqa: BLE001 - never fail a status over a version
+        return "0.0.0"
+
+
+def _semver_key(value) -> list | None:
+    """Split a version into comparable tokens, or None when unparseable.
+
+    "1.10.0-beta.1" -> [("n",1),("n",10),("n",0),("s","beta"),("n",1)].
+    Returns None for empty or garbage so callers can fall back to a plain
+    string inequality (never a silent crash on a vendor typo).
+    """
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text or not re.match(r"^[A-Za-z0-9][A-Za-z0-9._+\-]*$", text):
+        return None
+    out = []
+    for part in re.split(r"[._+\-]", text):
+        out.append(("n", int(part)) if part.isdigit() else ("s", part.lower()))
+    return out
+
+
+def _version_gt(a: str, b: str) -> bool:
+    """True when app version a is newer than b (semver-ish).
+
+    Unparseable inputs fall back to a != b so a downgrade never reports
+    itself as available, while an unrecognized format still triggers a
+    comparison the operator can see.
+    """
+    ka, kb = _semver_key(a), _semver_key(b)
+    if ka is None or kb is None:
+        return a != b
+    for ta, tb in zip(ka, kb):
+        if ta == tb:
+            continue
+        if ta[0] == tb[0]:
+            return ta[1] > tb[1]
+        return ta[0] == "n"  # numeric releases sort above pre-release labels
+    return len(ka) > len(kb)
+
+
+def _arch_normalize(arch: str) -> str:
+    return {"amd64": "x86_64", "arm64": "aarch64"}.get(arch, arch)
+
+
+def platform_key(root: Path | None = None) -> str:
+    """The '<os>-<arch>' key for this host, matching manifest payload keys."""
+    from .detect import detect
+    profile = detect(paths.data_root() if root is None else root)
+    os_name = prof_os(profile)
+    return "%s-%s" % (os_name, _arch_normalize(profile.arch).lower())
+
+
+def prof_os(profile) -> str:
+    os_name = (profile.os_name or "").lower()
+    return {"macos": "darwin", "win32": "windows"}.get(os_name, os_name)
+
+
+def current_app_state(root: Path | None = None) -> dict | None:
+    """The `app` sub-object stored in the current pointer, if any."""
+    st = current_state(root)
+    if not st or not isinstance(st.get("app"), dict):
+        return None
+    return st["app"]
+
+
+def app_binary_path(root: Path | None = None) -> str:
+    """The on-disk path of the currently active app binary, or ''."""
+    app = current_app_state(root)
+    base = _ota_dir(root)
+    if not app or not app.get("binary"):
+        return ""
+    path = base / APP_DIR_NAME / app["binary"]
+    return str(path)
+
+
+def _app_entry(app_block: dict, root: Path | None = None,
+               platform: str | None = None) -> tuple[str | None, dict | None]:
+    """(platform, payload-entry) for this host's payload in the app block."""
+    payloads = app_block.get("payloads") or {}
+    key = platform or platform_key(root)
+    entry = payloads.get(key)
+    if not isinstance(entry, dict):
+        return None, None
+    return key, entry
+
+
+def _safe_basename(url: str) -> str:
+    """The leaf filename of a payload url, refusing path escapes."""
+    no_query = url.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    name = no_query.rsplit("/", 1)[-1]
+    if not name or name in (".", "..") or "/" in name or "\\" in name:
+        raise MalformedManifest("app payload url has an unsafe filename: %r" % url)
+    return name
+
+
+def _resolve_payload_url(url: str, source: str | None) -> str:
+    if url.startswith(("http://", "https://")):
+        return url
+    if not source:
+        raise MalformedManifest(
+            "cannot resolve relative app payload url %r without an update source" % url)
+    if source.startswith(("http://", "https://")):
+        base = source.rsplit("/", 1)[0]
+        return base + "/" + _safe_basename(url)
+    base = Path(source).resolve().parent
+    return str(base / _safe_basename(url))
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +523,98 @@ def check_for_update(source: str, fetcher=None, root: Path | None = None) -> dic
     }
 
 
+def check_update(source: str | None = None, fetcher=None,
+                 root: Path | None = None) -> dict:
+    """A full update check: the catalog and the app (schema v2).
+
+    Verifies the manifest (a tampered one raises SignatureError before
+    anything is reported, so a refusal is the state, never a silent pass).
+    Returns {ok, state, catalog: {...}, app: {...}, available, source,
+    manifest}. available is True when either half has a newer, installable
+    version. The manifest's exact payload is included so callers can render
+    notes or a changelog link.
+    """
+    src = source if source is not None else resolve_source()
+    payload = verify_manifest(fetch_document(src, fetcher))
+    st = current_state(root) or {}
+    current_catalog = st.get("active_catalog") or "embedded"
+    catalog = {
+        "available": current_catalog == "embedded" or payload["version"] != current_catalog,
+        "current_version": current_catalog,
+        "latest_version": payload["version"],
+        "model_count": len(payload["models"]),
+        "released": payload.get("released", ""),
+    }
+
+    app = {
+        "available": False,
+        "current_version": current_app_version(root),
+        "latest_version": None,
+        "released": "",
+        "notes": None,
+        "notes_url": None,
+        "min_source_version": None,
+        "payload_for_platform": False,
+        "reason": "manifest has no app block",
+    }
+    app_block = payload.get("app")
+    if app_block is not None:
+        key, entry = _app_entry(app_block, root)
+        latest = app_block["version"]
+        min_source = app_block.get("min_source_version")
+        notes = app_block.get("notes")
+        notes_url = app_block.get("notes_url")
+        app.update({
+            "latest_version": latest,
+            "released": app_block.get("released", ""),
+            "notes": notes,
+            "notes_url": notes_url,
+            "min_source_version": min_source,
+            "payload_for_platform": entry is not None,
+            "current_version": current_app_version(root),
+        })
+        warnings = []
+        if entry is None:
+            warnings.append("no payload for platform %s" % platform_key(root))
+        elif not _version_gt(latest, app["current_version"]):
+            warnings.append("already on the newest app version")
+        if not _source_supports(min_source):
+            warnings.append("requires source >= %s" % min_source)
+        # available strictly means: newer than what we run AND installable here.
+        app["available"] = (
+            entry is not None
+            and _version_gt(latest, app["current_version"])
+            and _source_supports(min_source)
+        )
+        if not app["available"]:
+            app["reason"] = "; ".join(warnings) or "not available"
+    return {
+        "ok": True,
+        "state": "ok",
+        "available": bool(catalog["available"] or app["available"]),
+        "catalog": catalog,
+        "app": app,
+        "source": src,
+        "checked_at": _iso_now(),
+        "manifest": payload,
+    }
+
+
+def current_app_version(root: Path | None = None) -> str:
+    """The app version this install is on: the pointer's, else package metadata."""
+    app = current_app_state(root)
+    if app and app.get("version"):
+        return str(app["version"])
+    return installed_app_version()
+
+
+def _source_supports(min_source: str | None) -> bool:
+    """Can this install run an app release gated by min_source_version?"""
+    if not min_source:
+        return True
+    return not _version_gt(min_source, installed_app_version())
+
+
 # ---------------------------------------------------------------------------
 # Download to staging with checksum verification
 # ---------------------------------------------------------------------------
@@ -333,6 +645,59 @@ def download_update(doc: dict, base_url: str = "", fetcher=None,
             fh.write(data)
         total += len(data)
     return {"staged": len(blobs), "staging_dir": str(target), "bytes": total}
+
+
+def stage_app_payload(doc: dict, source: str | None = None, fetcher=None,
+                      root: Path | None = None, progress: Callable | None = None,
+                      cancel=None) -> dict:
+    """Verify the envelope, then download the app payload for this host into
+    staging using steward.download (sha256 enforced, resumable, cancelable).
+
+    The manifest signature is verified first, so a tampered manifest cannot
+    stage anything. The payload sha256 is enforced by download.fetch against
+    the per-platform entry, so a tampered payload is refused at staging.
+    Returns {staged, platform, version, path, filename, bytes} or a refusal
+    {staged: False, reason}.
+    """
+    payload = verify_manifest(doc)
+    app_block = payload.get("app")
+    if app_block is None:
+        return {"staged": False, "reason": "manifest has no app block"}
+    key, entry = _app_entry(app_block, root)
+    if entry is None:
+        return {"staged": False,
+                "reason": "no app payload for platform %s" % platform_key(root)}
+    url = entry["url"]
+    resolved = _resolve_payload_url(url, source)
+    name = _safe_basename(url)
+    target = staging_dir(root) / APP_DIR_NAME
+    paths.ensure_dir(target)
+    spec = _download.DownloadSpec(
+        url=resolved,
+        dest=target / name,
+        expected_bytes=int(entry.get("size") or 0),
+        sha256=entry["sha256"],
+    )
+    dest = _download.fetch(spec, progress=progress, cancel=cancel)
+    # Re-verify the staged bytes: defense in depth, mirrors apply's own check.
+    if hashlib.sha256(dest.read_bytes()).hexdigest() != entry["sha256"]:
+        raise ChecksumError("staged app payload %s failed sha256 after download" % name)
+    # A Steward payload is an executable; download.fetch creates files with the
+    # default umask (0644), so make the verified staged copy owner-executable
+    # to match the installed file's 0700 mode. This is what lets the health
+    # probe run `staged_binary version` before the pointer commits.
+    try:
+        os.chmod(dest, 0o700)
+    except OSError:
+        pass  # chmod is best effort; a read-only filesystem still stages
+    return {
+        "staged": True,
+        "platform": key,
+        "version": app_block["version"],
+        "path": str(dest),
+        "filename": name,
+        "bytes": dest.stat().st_size,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -395,13 +760,111 @@ def _plan_dict() -> dict:
     }
 
 
-def _new_pointer(payload: dict, root: Path | None) -> dict:
-    return {
+def _new_pointer(payload: dict, root: Path | None,
+                 app_result: dict | None = None) -> dict:
+    ptr = {
         "active_catalog": payload["version"],
         "app_version": payload.get("app_version", ""),
         "hardware": _hardware_signature(root),
         "plan": _plan_dict(),
         "updated": _iso_now(),
+    }
+    app_block = payload.get("app")
+    if app_block is not None:
+        if app_result is not None and app_result.get("installed"):
+            # A real app swap: point at the newly verified binary.
+            ptr["app"] = {
+                "version": app_result["version"],
+                "platform": app_result["platform"],
+                "binary": app_result["binary"],
+                "min_source_version": app_result.get("min_source_version"),
+                "updated": _iso_now(),
+            }
+        elif app_result is not None and app_result.get("reason") == "already active":
+            # A catalog-only apply with a manifest that carries the app we
+            # already run: keep the existing app pointer intact.
+            cur = current_app_state(root)
+            if cur is not None:
+                ptr["app"] = dict(cur)
+    return ptr
+
+
+def _atomic_copy(src: Path, dst: Path) -> None:
+    """Copy src to dst atomically (tmp in the same dir + fsync + rename)."""
+    paths.ensure_dir(dst.parent)
+    fd, tmp = tempfile.mkstemp(dir=str(dst.parent), prefix=dst.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as out:
+            with open(src, "rb") as fh:
+                shutil.copyfileobj(fh, out, length=_download.CHUNK_SIZE)
+            out.flush()
+            os.fsync(out.fileno())
+        os.chmod(tmp, 0o700)
+        os.replace(tmp, str(dst))
+    except BaseException:
+        _unlink_quiet(Path(tmp))
+        raise
+
+
+def _app_install_needed(payload: dict, root: Path | None) -> bool:
+    """True when the manifest's app block has a newer payload for this host."""
+    app_block = payload.get("app")
+    if app_block is None:
+        return False
+    _, entry = _app_entry(app_block, root)
+    if entry is None:
+        return False
+    cur = current_app_state(root)
+    return cur is None or (cur.get("version") != app_block["version"]
+                           and _version_gt(app_block["version"],
+                                           cur.get("version") or installed_app_version()))
+
+
+def _stage_app_install(payload: dict, root: Path | None) -> dict | None:
+    """Move the verified staged app payload into place for the pointer commit.
+
+    Returns None when the manifest has no app payload for this host, a
+    fresh dict on a real install, and an {installed: False, reason} refusal
+    when the version is already active or unsupported. The staged file is
+    re-hashed here (defense in depth) before it is copied into the immutable
+    app dir; this copy happens BEFORE the pointer rename, so a kill between
+    this write and the commit leaves the previous pointer (the old app
+    binary) fully usable.
+    """
+    app_block = payload.get("app")
+    if app_block is None:
+        return None
+    key, entry = _app_entry(app_block, root)
+    if entry is None:
+        return {"installed": False, "platform": platform_key(root),
+                "version": app_block["version"],
+                "reason": "no payload for platform"}
+    cur = current_app_state(root)
+    if cur is not None and cur.get("version") == app_block["version"]:
+        return {"installed": False, "platform": key,
+                "version": app_block["version"], "reason": "already active"}
+    if not _source_supports(app_block.get("min_source_version")):
+        return {"installed": False, "platform": key,
+                "version": app_block["version"],
+                "reason": "requires source >= %s" % app_block.get("min_source_version")}
+    name = _safe_basename(entry["url"])
+    staged = staging_dir(root) / APP_DIR_NAME / name
+    if not staged.is_file():
+        raise MalformedManifest(
+            "app payload %s is not staged; run the download step first" % name)
+    if hashlib.sha256(staged.read_bytes()).hexdigest() != entry["sha256"]:
+        raise ChecksumError("staged app payload %s fails its sha256; refusing" % name)
+    app_dir = _ota_dir(root) / APP_DIR_NAME
+    installed_path = app_dir / name
+    _atomic_copy(staged, installed_path)
+    _run_kill_hook("app-installed")
+    return {
+        "installed": True,
+        "platform": key,
+        "version": app_block["version"],
+        "binary": installed_path.name,
+        "min_source_version": app_block.get("min_source_version"),
+        "path": str(installed_path),
     }
 
 
@@ -444,24 +907,75 @@ def load_active_payload_for_version(version: str, root: Path | None = None) -> d
     return payload if isinstance(payload, dict) else None
 
 
-def apply_update(doc: dict, health_probe, root: Path | None = None,
+def app_binary_probe(binary_path: str | None = None,
+                     expect_version: str | None = None,
+                     timeout: float = APPLY_PROBE_TIMEOUT_S):
+    """A health probe for an app install: run a binary with `version`.
+
+    `binary_path` defaults to the currently active app binary (from the
+    pointer); `expect_version` defaults to the pointer's app version. The
+    probe passes only when the binary runs and its `version` output matches
+    the expected version, which is exactly what "the old binary still
+    answers" means after a rollback. Never raises; a bad binary is a failed
+    probe.
+    """
+    def probe() -> dict:
+        exe = binary_path
+        expect = expect_version
+        if exe is None or expect is None:
+            app = current_app_state(None)
+            app = app or {}
+            exe = exe or (app.get("binary") and str(
+                _ota_dir() / APP_DIR_NAME / app["binary"])) or ""
+            expect = expect or app.get("version")
+        if not exe or not Path(exe).is_file():
+            return {"ok": False, "error": "app binary is missing: %r" % (exe,)}
+        try:
+            run = subprocess.run([exe, "version"], capture_output=True,
+                                 text=True, timeout=timeout, check=False)
+            out = (run.stdout or "") + (run.stderr or "")
+        except Exception as exc:  # noqa: BLE001 - a broken binary is a failed probe
+            return {"ok": False, "error": "app binary did not answer: %s" % exc}
+        out = out.strip()
+        ok = bool(expect) and str(expect) in out
+        return {"ok": ok, "version": out or "(no output)",
+                "expected": str(expect or "")}
+    return probe
+
+
+def _auto_probe(app_result: dict | None):
+    """Pick the strictest probe that applies: the app binary, else the backend."""
+    if app_result is not None and app_result.get("installed"):
+        return app_binary_probe(app_result.get("path"),
+                                app_result.get("version"))
+    return backend_health_probe()
+
+
+def apply_update(doc: dict, health_probe=None, root: Path | None = None,
                  timeout: float = APPLY_PROBE_TIMEOUT_S) -> dict:
-    """Atomically activate a signed catalog generation, with rollback.
+    """Atomically activate a signed catalog and/or app update, with rollback.
 
     The envelope signature is re-verified here, so a tampered manifest is
     refused before anything is written. Steps: write the immutable
     catalog-<version>.json, install the new generation into the in-memory
-    catalog, commit the pointer with one atomic rename (the commit point),
-    then health-probe the new bundle. If the probe does not pass within
-    `timeout` seconds, the pointer is restored to the previous value and the
-    new catalog file is removed, so the old state is fully usable again.
+    catalog, move the verified staged app payload into the immutable app dir
+    (when the manifest carries one for this host), commit the pointer with
+    one atomic rename (the commit point), then health-probe the new bundle
+    (for an app install: run the new binary and require its version). If the
+    probe does not pass within `timeout` seconds, the pointer is restored to
+    the previous value and the new catalog file and new app binary are
+    removed, so the old state - and the old app binary - fully answer again.
+
+    `health_probe` may be None: an app install then probes the new binary,
+    anything else falls back to the backend probe.
     """
     payload = verify_manifest(doc)
     _validate_manifest_payload(payload)
     version = payload["version"]
     root = root if root is not None else paths.data_root()
     prev = current_state(root)
-    if prev and prev.get("active_catalog") == version:
+    if (prev and prev.get("active_catalog") == version
+            and not _app_install_needed(payload, root)):
         return {"applied": False, "rolled_back": False,
                 "reason": "version %s is already active" % version}
 
@@ -470,11 +984,14 @@ def apply_update(doc: dict, health_probe, root: Path | None = None,
     _run_kill_hook("catalog-written")
 
     installed = _install_models(payload["models"])
-    new_pointer = _new_pointer(payload, root)
+
+    app_result = _stage_app_install(payload, root)
+    new_pointer = _new_pointer(payload, root, app_result)
     atomic_write_json(current_path(root), new_pointer, mode=0o600)
     _run_kill_hook("pointer-swapped")
 
-    result = _probe_until(health_probe, timeout)
+    probe = health_probe if health_probe is not None else _auto_probe(app_result)
+    result = _probe_until(probe, timeout)
     if result.get("ok"):
         return {
             "applied": True,
@@ -483,20 +1000,32 @@ def apply_update(doc: dict, health_probe, root: Path | None = None,
             "models": installed,
             "hardware": new_pointer.get("hardware"),
             "plan": new_pointer.get("plan"),
+            "app": app_result,
         }
 
-    # Rollback: restore the previous pointer and drop the new catalog.
+    # Rollback: restore the previous pointer and drop both new artifacts.
     if prev is not None:
         atomic_write_json(current_path(root), prev, mode=0o600)
     else:
         _unlink_quiet(current_path(root))
     _unlink_quiet(catalog_path(version, root))
+    if app_result is not None and app_result.get("path"):
+        _unlink_quiet(Path(app_result["path"]))
     _restore_models_from(prev, root)
+    app_fail = None
+    if app_result is not None:
+        app_fail = {
+            "installed": False,
+            "platform": app_result.get("platform"),
+            "version": app_result.get("version"),
+            "reason": result.get("error") or "health probe failed",
+        }
     return {
         "applied": False,
         "rolled_back": True,
         "version": version,
         "reason": result.get("error") or "health probe failed",
+        "app": app_fail,
     }
 
 
@@ -548,19 +1077,38 @@ def reselect_if_hardware_changed(root: Path | None = None) -> dict:
 # Status / reporting
 # ---------------------------------------------------------------------------
 
+def startup_check_status(source: str | None = None, root: Path | None = None) -> dict:
+    """One best-effort update check with a recorded status (daemon boot / CLI).
+
+    Never raises: an unreachable or tampered source records state=refused or
+    state=error, so a daemon boot with a bad source is a normal start with
+    a recorded status, never a failed unit.
+    """
+    src = source if source is not None else resolve_source()
+    try:
+        result = check_update(source=src, root=root)
+        result["state"] = "ok"
+    except Exception as exc:  # noqa: BLE001 - every source failure is a status
+        result = {"ok": False, "state": "error", "error": str(exc), "source": src}
+    result["checked_at"] = _iso_now()
+    return result
+
+
 def status(root: Path | None = None) -> dict:
     """A snapshot of the OTA state for `steward ota status`."""
     st = current_state(root) or {}
     payload = load_active_payload(root)
     sig = _hardware_signature(root)
+    app = current_app_state(root)
     return {
         "active_catalog": st.get("active_catalog") or "embedded",
         "app_version": st.get("app_version", ""),
+        "app": app,
         "model_count": len(payload["models"]) if payload else 0,
         "models": sorted(m["id"] for m in payload["models"]) if payload else [],
         "hardware": sig,
         "hardware_changed": st.get("hardware") not in (None, sig),
         "plan": st.get("plan"),
         "updated": st.get("updated"),
-        "update_url": os.environ.get(UPDATE_ENV, ""),
+        "update_url": resolve_source(),
     }

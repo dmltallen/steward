@@ -86,6 +86,19 @@ the only real builds.
 Ten numbered steps with what every screen should show are in
 docs/QUICKSTART.md.
 
+## Updating Steward
+
+Steward checks for updates itself: `steward update check` asks the released
+update source (or `STEWARD_OTA_URL`) and reports what is new; `steward
+update apply` downloads a verified payload, runs the installed version's
+health check, and rolls back to the previous binary if the new one does not
+answer. The daemon runs the same check once at start and on request
+(`GET /v1/update/check`, `POST /v1/update/apply`) and never fails to start
+when the source is unreachable. Updates are signed with the same vendor key
+as licenses, so a tampered manifest or payload is refused before anything
+is installed. The release flow publishes the signed manifest with
+`tools/mint_manifest.py`.
+
 ## What it does with your data
 
 Everything is stored under one data root, `~/.steward` by default

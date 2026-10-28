@@ -10,7 +10,7 @@ import json
 import stat
 
 from steward import paths
-from steward.config import Config, atomic_write_json
+from steward.config import DEFAULT_OTA_URL, Config, atomic_write_json
 
 
 def _write_config(home, values: dict) -> None:
@@ -67,6 +67,20 @@ def test_load_defaults(tmp_path):
     assert cfg.telemetry is False
     assert cfg.allow_shell is False
     assert cfg.retrieval_dirs == []
+    assert cfg.ota_url == DEFAULT_OTA_URL
+
+
+def test_ota_url_default_and_overrides(tmp_path):
+    # A consumer never sets an env var: the released default is baked in.
+    cfg = Config.load(_env(tmp_path / "home"))
+    assert cfg.ota_url == DEFAULT_OTA_URL
+    # STEWARD_OTA_URL wins over the file value.
+    _write_config(tmp_path / "home", {"ota_url": "http://file.example/update.json"})
+    cfg2 = Config.load(_env(tmp_path / "home", STEWARD_OTA_URL="http://env.example/u"))
+    assert cfg2.ota_url == "http://env.example/u"
+    # Without the override, the file value is the effective source.
+    cfg3 = Config.load(_env(tmp_path / "home"))
+    assert cfg3.ota_url == "http://file.example/update.json"
 
 
 def test_env_overrides_file(tmp_path):

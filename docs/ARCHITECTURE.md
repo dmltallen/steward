@@ -1,8 +1,51 @@
 # Steward Architecture
 
-**Version:** 1.4, 2026-10-26 (1.4 adds the runtime seam, pairing auth,
-retrieval index and tool connectors; 1.3 closed the serving-backend
-question with the vLLM benchmark on U1, Ollama stays v1)
+**Version:** 1.5, 2026-10-28 (1.5 adds the schema-v2 OTA envelope that
+carries the app, the /v1/update routes, and the daemon startup check; 1.4
+added the runtime seam, pairing auth, retrieval index and tool connectors;
+1.3 closed the serving-backend question with the vLLM benchmark on U1,
+Ollama stays v1)
+
+## What changed in 1.5
+
+The signed OTA envelope (S11) now carries the Steward app itself, not just
+a model-catalog generation. One manifest schema v2, signed with the same
+Ed25519 vendor key as licenses and the v1 catalog:
+
+- **The `app` block.** A manifest payload may carry `app: {version,
+  released, notes | notes_url, min_source_version, payloads}` where each
+  per-platform payload (`linux-x86_64`, `linux-aarch64`, `darwin-arm64`,
+  ...) lists a relative or absolute url, a sha256 and a size. v1 manifests
+  without the block verify exactly as before. The source lives by default
+  in the released config (`config.ota_url`), so a consumer never sets an
+  env var; `STEWARD_OTA_URL` stays as an override.
+- **Staging reuses steward.download.** App payloads download into
+  `<data>/ota/staging/app/` through the existing resumable, cancelable,
+  checksum-verified downloader (`download.fetch`), never a second
+  downloader. Downloads refuse a tampered payload at the sha256 before
+  staging.
+- **Atomic apply with the health-probe rollback model.** The verified
+  payload is copied to the immutable `<data>/ota/app/` dir, then one atomic
+  rename of `current.json` is the commit point (catalog + app together). A
+  health probe runs the new binary with `steward version` and requires the
+  expected version back; on failure the pointer is restored and the new
+  catalog file and new app binary are removed, so the old binary still
+  answers. A kill between the app-file write and the pointer commit leaves
+  the old install usable, proven by the `_kill_hooks` seam in tests.
+- **Daemon routes, no separate updater.** `GET /v1/update/check` and
+  `POST /v1/update/apply` are bearer-required (the same gate as every other
+  mutating/data route; the strong gate is cryptographic, so a tampered
+  manifest or payload is refused regardless of the caller). `steward
+  update check` and `steward update apply` are CLI parity. The check also
+  runs once at daemon start in a background thread and records its status;
+  an unreachable source is a normal start with a recorded status, never a
+  failed unit. There is no timer, no systemd unit and no separate updater
+  process.
+
+Full manifest schema v2 is documented in `src/steward/ota.py`. `tools/
+mint_manifest.py` builds the signed manifest deterministically from built
+artifacts so the release flow can publish `<repo>/releases/update.json`,
+which the released default source points at.
 
 ## What changed in 1.4
 

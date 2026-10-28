@@ -1,5 +1,41 @@
 # Steward Changelog
 
+## v1.1.0 (2026-10-28)
+
+The signed update envelope now carries the Steward app itself, and the
+daemon checks and applies updates on demand instead of riding winget/brew/
+apt with `STEWARD_OTA_URL` set by hand.
+
+- **Manifest schema v2.** The signed OTA envelope (same Ed25519 vendor key
+  as licenses and the v1 catalog) may now carry an `app` block: version,
+  released, notes or changelog URL, a minimum source version, and per-
+  platform payloads with a sha256 and size. v1 manifests verify unchanged.
+  Schema is documented in `src/steward/ota.py` and `docs/ARCHITECTURE.md`.
+- **App payloads download into staging** through the existing resumable,
+  cancelable, checksum-enforced downloader (`steward.download`), never a
+  second downloader. A tampered manifest or a tampered payload is refused
+  at download and at apply, before anything is written.
+- **Atomic apply with the health-probe rollback model.** A verified payload
+  is installed to an immutable `<data>/ota/app/` file and the `current.json`
+  pointer commits catalog + app in one atomic rename. The health probe runs
+  the new binary with `steward version`; on failure the pointer is restored
+  to the previous value and the new app binary is removed, so the old
+  binary still answers. A kill mid-swap leaves the old install usable
+  (proven through the `_kill_hooks` seam).
+- **Daemon routes.** `GET /v1/update/check` and `POST /v1/update/apply`
+  (bearer-required like every other mutating/data route). The check also
+  runs once at daemon start in a background thread and records its status;
+  an unreachable source is a normal start with a recorded status, never a
+  failed unit. No timer, no systemd unit, no separate updater process.
+- **CLI parity.** `steward update check` and `steward update apply`, feeding
+  off the same check/apply functions as the daemon routes; `--source` and
+  `--no-app` override the default.
+- **Released default source.** `config.ota_url` defaults to
+  `https://github.com/dmltallen/steward/raw/branch/master/releases/update.json`;
+  `STEWARD_OTA_URL` overrides it. `tools/mint_manifest.py` builds the signed
+  manifest deterministically from built artifacts for the release flow to
+  publish.
+
 ## v1.0.1 (2026-10-27)
 
 Test-drive fixes, all found by running the private-environment drive on U1.
