@@ -83,3 +83,75 @@ export type HealthInfo = {
   paired: number;
   ok: boolean;
 };
+
+/** Per-platform app payload from the signed manifest (`app.payloads`). */
+export type AppPayloadEntry = {
+  url: string;
+  sha256: string;
+  size: number;
+};
+
+/** The app half of GET /v1/update/check, as reported for the running daemon. */
+export type AppUpdateInfo = {
+  available: boolean;
+  current_version: string;
+  latest_version: string | null;
+  released: string;
+  notes: string | null;
+  notes_url: string | null;
+  min_source_version: string | null;
+  payload_for_platform: boolean;
+  reason: string | null;
+};
+
+/** GET /v1/update/check body (schema v2, daemon route). */
+export type UpdateCheckReport = {
+  ok: boolean;
+  state: 'ok' | 'refused' | 'error' | string;
+  available: boolean;
+  source: string;
+  checked_at: string;
+  catalog?: {
+    available: boolean;
+    current_version: string;
+    latest_version: string;
+    model_count: number;
+    released: string;
+  };
+  app?: AppUpdateInfo;
+  error?: string;
+  manual_command?: string;
+  manifest?: {
+    version: string;
+    app?: {
+      version: string;
+      released: string;
+      notes?: string | null;
+      notes_url?: string | null;
+      min_source_version?: string | null;
+      payloads?: Record<string, AppPayloadEntry>;
+    };
+  };
+};
+
+/**
+ * A verified mobile-app update ready (or not) to install. `verified` means
+ * the downloaded APK matched the signed manifest's sha256; when false the
+ * UI must fall back to a copyable link instead of installing (store 1.1
+ * replaces or augments this path without touching the screens).
+ */
+export type MobileUpdatePlan = {
+  available: boolean;
+  fromVersion: string;
+  toVersion: string;
+  notes: string | null;
+  notesUrl: string | null;
+  platform: string | null;
+  payload: AppPayloadEntry | null;
+  reason: string | null;
+};
+
+/** Result of verifying a downloaded APK against the signed manifest. */
+export type ApkVerification =
+  | { ok: true; sha256: string; bytes: number }
+  | { ok: false; reason: string };

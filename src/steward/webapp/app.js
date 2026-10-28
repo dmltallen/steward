@@ -1191,6 +1191,400 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /* updates (one-click UI over /v1/update/check + /v1/update/apply)     */
+  /* ------------------------------------------------------------------ */
+
+  var UPDATE_AUTOCHECK_KEY = 'steward.update.autocheck';   // '1' on (default), '0' off
+  var UPDATE_DISMISS_KEY = 'steward.update.dismissed.';    // + app version
+  var updateState = {
+    checkedAt: null,
+    last: null,        // last /v1/update/check payload
+    available: false,
+    applying: false,
+    reconnecting: false,
+    error: null,
+    manual: null
+  };
+
+  function hasDom() {
+    return typeof document !== 'undefined';
+  }
+
+  function updateAutocheckEnabled() {
+    try { return localStorage.getItem(UPDATE_AUTOCHECK_KEY) !== '0'; }
+    catch (e) { return true; }   // default on, private-mode safe
+  }
+  function setUpdateAutocheck(on) {
+    try { localStorage.setItem(UPDATE_AUTOCHECK_KEY, on ? '1' : '0'); } catch (e) { /* memory */ }
+  }
+  function updateDismissed(version) {
+    try { return localStorage.getItem(UPDATE_DISMISS_KEY + version) === '1'; } catch (e) { return false; }
+  }
+  function dismissUpdate(version) {
+    try { localStorage.setItem(UPDATE_DISMISS_KEY + version, '1'); } catch (e) { /* memory */ }
+  }
+
+  function latestAppVersion(result) {
+    var app = (result && result.app) || {};
+    return app.latest_version || null;
+  }
+
+  /** The one-line manual fallback, copied from the daemon's response. */
+  function manualCommand(result) {
+    return (result && result.manual_command) || 'steward update apply';
+  }
+
+  /**
+   * Maybe ask the daemon for an update. Auto-check only fires when the user
+   * has not turned it off; when off, no request is made at all (tested in
+   * the node harness). `force` bypasses the pref for the Settings button.
+   */
+  function maybeCheckForUpdates(force) {
+    if (!session.token) { return Promise.resolve(); }
+    if (!force && !updateAutocheckEnabled()) { return Promise.resolve(); }
+    return apiJson('/v1/update/check').then(function (result) {
+      updateState.last = result;
+      updateState.checkedAt = new Date();
+      updateState.available = !!(result && result.available) ||
+        !!(result && result.app && result.app.available);
+      updateState.error = (result && result.ok === false) ? (result.error || 'check failed') : null;
+      updateState.manual = manualCommand(result);
+      renderUpdateWidget();
+      return result;
+    }).catch(function (err) {
+      if (err.status === 401) { return null; }
+      // A short daemon blip should not overwrite what we last knew.
+      updateState.error = updateState.error || err.message;
+      renderUpdateWidget();
+      return null;
+    });
+  }
+
+  function renderUpdateWidget() {
+    var box = hasDom() ? document.getElementById('update-notice') : null;
+    if (!box) { return; }
+    var result = updateState.last || {};
+    var app = result.app || {};
+    var installing = updateState.applying || updateState.reconnecting;
+
+    box.textContent = '';
+    box.className = 'update-notice' + (updateState.error ? ' error' : '') +
+      (installing ? ' busy' : '');
+    if (!installing && updateState.error && updateState.available === false &&
+        !updateState.last) {
+      // check-time failure (unreachable source): quiet, one-line, no dead end
+      box.hidden = false;
+      var errline = el('div', 'upd-row');
+      errline.appendChild(el('span', 'upd-text', 'Update check failed: ' + escapeHtml(updateState.error)));
+      errline.appendChild(el('code', 'upd-cmd', escapeHtml(updateState.manual)));
+      box.appendChild(errline);
+      return;
+    }
+
+    var available = updateState.available && app.available;
+    var version = latestAppVersion(result);
+    var dismissed = version && updateDismissed(version);
+
+    if (updateState.applying || updateState.reconnecting) {
+      box.hidden = false;
+      box.appendChild(renderUpdateActivity());
+      return;
+    }
+    if (!available || dismissed) {
+      box.hidden = true;
+      return;
+    }
+
+    box.hidden = false;
+    var head = el('div', 'upd-row');
+    var icon = el('span', 'upd-icon', '\u2191');
+    var title = el('span', 'upd-title', 'Steward ' + escapeHtml(version) + ' is ready to install');
+    head.appendChild(icon);
+    head.appendChild(title);
+    box.appendChild(head);
+
+    var notes = (result && result.app && (result.app.notes || result.app.notes_url));
+    if (notes) {
+      var noteLine = el('p', 'upd-notes', '');
+      if (result.app.notes_url && /^https?:\/\//i.test(result.app.notes_url)) {
+        noteLine.innerHTML = 'What is new: <a href="' + escapeHtml(result.app.notes_url) +
+          '" target="_blank" rel="noopener">' + escapeHtml(result.app.notes) + '</a>';
+      } else {
+        noteLine.textContent = 'What is new: ' + notes;
+      }
+      box.appendChild(noteLine);
+    }
+
+    if (result.app && result.app.released) {
+      box.appendChild(el('p', 'upd-meta',
+        'Released ' + escapeHtml(result.app.released) +
+        ' | now running ' + escapeHtml(result.app.current_version || '?')));
+    }
+
+    var actions = el('div', 'upd-actions');
+    var updateBtn = el('button', 'btn primary', 'Update');
+    updateBtn.type = 'button';
+    updateBtn.addEventListener('click', function () { startUpdate(); });
+    var laterBtn = el('button', 'btn ghost', 'Later');
+    laterBtn.type = 'button';
+    laterBtn.addEventListener('click', function () {
+      dismissUpdate(version);
+      box.hidden = true;
+    });
+    actions.appendChild(updateBtn);
+    actions.appendChild(laterBtn);
+    box.appendChild(actions);
+  }
+
+  function renderUpdateActivity() {
+    var wrap = el('div', 'upd-activity');
+    if (updateState.reconnecting) {
+      wrap.appendChild(el('p', 'upd-title', 'Update installed. Reconnecting to Steward\u2026'));
+      var spin = el('div', 'upd-progress indeterminate'); spin.setAttribute('aria-hidden', 'true');
+      wrap.appendChild(spin);
+    } else {
+      wrap.appendChild(el('p', 'upd-title', updateState.applying === 'final' ? 'Almost done\u2026' :
+        'Downloading Steward ' + escapeHtml(latestAppVersion(updateState.last) || '') + '\u2026'));
+      var bar = el('div', 'upd-progress');
+      var fill = el('div', 'upd-progress-fill');
+      bar.appendChild(fill);
+      wrap.appendChild(bar);
+      var label = el('p', 'upd-meta', updateState.applying === true ? 'Verifying and installing\u2026' : '');
+      wrap.appendChild(label);
+    }
+    return wrap;
+  }
+
+  /**
+   * One-click update to the newest signed build. Streams real download
+   * progress from POST /v1/update/apply (Accept: text/event-stream), then:
+   * applied + restart_intent -> show reconnecting, poll /health on its own,
+   * and land back in Chat with history intact; refusal/error -> show the real
+   * reason and the manual command, never a silent no-op.
+   */
+  function startUpdate() {
+    if (!session.token || updateState.applying || updateState.reconnecting) { return; }
+    updateState.applying = true;
+    updateState.error = null;
+    renderUpdateWidget();
+
+    var headers = { 'Content-Type': 'application/json' };
+    if (session.token) { headers['Authorization'] = 'Bearer ' + session.token; }
+    fetch('/v1/update/apply', {
+      method: 'POST',
+      headers: Object.assign({ Accept: 'text/event-stream' }, headers),
+      body: '{}'
+    }).then(function (resp) {
+      if (resp.status === 401) {
+        var e401 = new Error('unauthorized');
+        e401.status = 401;
+        return handleUnauthorized().then(function () { throw e401; });
+      }
+      if (!resp.ok) {
+        return resp.text().then(function (t) {
+          var err = new Error(t || ('apply failed (' + resp.status + ')'));
+          err.status = resp.status;
+          throw err;
+        });
+      }
+      return resp;
+    }).then(function (resp) {
+      var reader = resp.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = '';
+      var progressFill = null;
+      function setProgress(done, total) {
+        if (!progressFill) {
+          progressFill = document.querySelector('#update-notice .upd-progress-fill');
+        }
+        if (progressFill && total > 0) {
+          progressFill.style.width = Math.min(100, Math.round(done / total * 100)) + '%';
+        }
+      }
+      function pump() {
+        return reader.read().then(function (step) {
+          if (step.done) { return; }
+          buffer += decoder.decode(step.value, { stream: true });
+          var idx;
+          while ((idx = buffer.indexOf('\n\n')) !== -1) {
+            var event = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 2);
+            event.split('\n').forEach(function (line) {
+              if (line.indexOf('data: ') !== 0) { return; }
+              var payload = line.slice(6);
+              if (payload === '[DONE]') { return; }
+              var ev;
+              try { ev = JSON.parse(payload); } catch (e) { return; }
+              if (ev.event === 'progress') { setProgress(ev.done, ev.total); }
+              if (ev.event === 'phase' && ev.name === 'apply') {
+                // download done; moving into verify/apply
+                var bar = document.querySelector('#update-notice .upd-activity .upd-meta');
+                if (bar) { bar.textContent = 'Verifying and installing\u2026'; }
+              }
+              if (ev.event === 'result') { finishUpdate(ev.result); }
+            });
+          }
+          return pump();
+        });
+      }
+      function finishUpdate(result) {
+        updateState.applying = false;
+        updateState.last = Object.assign({}, updateState.last, result);
+        updateState.manual = manualCommand(result);
+        if (result && result.ok === true && result.state === 'applied' &&
+            result.restart_intent && result.restart_intent.pending) {
+          // Daemon is replacing itself; show reconnect and let it come back.
+          updateState.reconnecting = true;
+          renderUpdateWidget();
+          waitForDaemonBack(result.restart_intent.version, result);
+        } else {
+          updateState.error = (result && result.error) ||
+            ((result && result.state === 'noop') ? 'Already on the newest version.' :
+             'The update did not apply.');
+          updateState.available = false;
+          renderUpdateWidget();
+          renderFinalFailure(result);
+        }
+      }
+      function renderFinalFailure(result) {
+        var box = document.getElementById('update-notice');
+        if (!box) { return; }
+        box.hidden = false;
+        var reason = (result && result.error) || updateState.error;
+        box.appendChild(el('p', 'upd-notes', 'The update failed: ' + escapeHtml(reason)));
+        if (updateState.manual) {
+          box.appendChild(el('p', 'upd-manual', 'Run it from a terminal on this machine:'));
+          box.appendChild(el('code', 'upd-cmd', escapeHtml(updateState.manual)));
+        }
+        var retry = el('button', 'btn', 'Try update again');
+        retry.type = 'button';
+        retry.addEventListener('click', function () {
+          updateState.available = true; updateState.error = null;
+          renderUpdateWidget();
+          if (!updateState.applying) { startUpdate(); }
+        });
+        var dismiss = el('button', 'btn ghost', 'Dismiss');
+        dismiss.type = 'button';
+        dismiss.addEventListener('click', function () { box.hidden = true; });
+        var actions = el('div', 'upd-actions');
+        actions.appendChild(retry);
+        actions.appendChild(dismiss);
+        box.appendChild(actions);
+      }
+      function waitForDaemonBack(targetVersion, result) {
+        // Keep the message area; poll /health until the daemon answers with
+        // the new version. History is server-side and the session token
+        // survives restart, so re-entering Chat resumes it intact.
+        var deadline = Date.now() + 120000;   // 2 minutes, generous for a swap
+        var poll = function () {
+          if (!updateState.reconnecting) { return; }
+          fetch('/health').then(function (resp) {
+            if (!resp.ok) { return schedule(); }
+            return resp.json().then(function (h) {
+              var version = h && h.version ? String(h.version) : '';
+              if (targetVersion && version && version !== targetVersion &&
+                  Date.now() < deadline) {
+                return schedule();   // old daemon mid-shutdown; keep waiting
+              }
+              if (version === targetVersion || Date.now() >= deadline) {
+                finishReconnect(targetVersion);
+              } else {
+                schedule();
+              }
+            });
+          }).catch(schedule);
+          function schedule() {
+            if (Date.now() < deadline) { setTimeout(poll, 1000); }
+            else { finishReconnect(targetVersion, true); }
+          }
+        };
+        poll();
+      }
+      function finishReconnect(targetVersion, timedOut) {
+        updateState.reconnecting = false;
+        updateState.available = false;
+        updateState.error = null;
+        renderUpdateWidget();
+        // Land back in chat with history intact: conversations live on the
+        // daemon and our token is still valid, so a light reload resumes.
+        window.location.hash = '#chat';
+        window.location.reload();
+      }
+      return pump();
+    }).catch(function (err) {
+      if (err.status === 401) { return; }
+      updateState.applying = false;
+      updateState.reconnecting = false;
+      updateState.error = err.message || 'update failed';
+      renderUpdateWidget();
+      var box = document.getElementById('update-notice');
+      if (box) {
+        box.hidden = false;
+        box.appendChild(el('p', 'upd-notes', 'The update failed: ' + escapeHtml(err.message)));
+        if (updateState.manual) {
+          box.appendChild(el('p', 'upd-manual', 'Run it from a terminal on this machine:'));
+          box.appendChild(el('code', 'upd-cmd', escapeHtml(updateState.manual)));
+        }
+      }
+    });
+  }
+
+  function renderUpdateSettings(info) {
+    var fields = document.getElementById('update-fields');
+    if (!fields) { return; }
+    fields.textContent = '';
+    function row(label, html) {
+      fields.appendChild(el('dt', '', label));
+      var dd = el('dd', '');
+      dd.innerHTML = html;
+      fields.appendChild(dd);
+    }
+    var appV = ((updateState.last && updateState.last.app) || {}).current_version || info.version;
+    var daemonV = info.version;
+    row('App version', escapeHtml(appV || '?'));
+    row('Daemon version', escapeHtml(daemonV || '?'));
+
+    // Check for updates button row
+    var checkCell = el('dd', 'upd-check-cell');
+    var checkBtn = el('button', 'btn', 'Check for updates');
+    checkBtn.type = 'button';
+    checkBtn.addEventListener('click', function () {
+      checkBtn.disabled = true;
+      checkBtn.textContent = 'Checking\u2026';
+      maybeCheckForUpdates(true).finally(function () {
+        checkBtn.disabled = false;
+        checkBtn.textContent = 'Check for updates';
+        if (updateState.available) {
+          renderUpdateWidget();   // show the banner too
+        }
+      });
+    });
+    fields.appendChild(el('dt', '', 'Check for updates'));
+    checkCell.appendChild(checkBtn);
+    var last = updateState.last ? 'Last checked ' + updateState.checkedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never checked';
+    checkCell.appendChild(el('span', 'hint', ' ' + last));
+    fields.appendChild(checkCell);
+
+    // Auto-check toggle (default on)
+    var auto = updateAutocheckEnabled();
+    var toggleCell = el('dd', 'upd-check-cell');
+    var toggleLabel = el('label', 'toggle');
+    var checkbox = el('input', '');
+    checkbox.type = 'checkbox';
+    checkbox.checked = auto;
+    checkbox.setAttribute('aria-label', 'Check for updates when the app opens');
+    checkbox.addEventListener('change', function () {
+      setUpdateAutocheck(checkbox.checked);
+    });
+    toggleLabel.appendChild(checkbox);
+    toggleLabel.appendChild(el('span', 'toggle-track', ''));
+    toggleCell.appendChild(toggleLabel);
+    toggleCell.appendChild(el('span', 'hint', auto ? ' On (when this app opens)' : ' Off'));
+    fields.appendChild(el('dt', '', 'Auto-check'));
+    fields.appendChild(toggleCell);
+  }
+
+  /* ------------------------------------------------------------------ */
   /* settings                                                            */
   /* ------------------------------------------------------------------ */
 
@@ -1198,6 +1592,7 @@
     if (!session.token) { return; }
     apiJson('/v1/webapp/info').then(function (info) {
       renderSettings(info);
+      renderUpdateSettings(info);
     }).catch(function (err) {
       if (err.status !== 401) { console.error('settings:', err.message); }
     });
@@ -1418,6 +1813,12 @@
     window.addEventListener('hashchange', router);
     setStatus('Connecting');
     router();
+    // Auto-check for updates once per page load (respects the toggle; the
+    // daemon also checks at boot, so a fresh check here is cheap and shows
+    // the banner the instant the user opens the app).
+    if (session.token && updateAutocheckEnabled()) {
+      maybeCheckForUpdates(false);
+    }
   }
 
   /* ------------------------------------------------------------------ */
@@ -1427,6 +1828,15 @@
     renderMarkdown: renderMarkdown,
     qrMatrixEncode: qrMatrixEncode,
     drawQr: drawQr,
+    updateAutocheckEnabled: updateAutocheckEnabled,
+    setUpdateAutocheck: setUpdateAutocheck,
+    maybeCheckForUpdates: maybeCheckForUpdates,
+    // Test/headless surface: drive the update logic without a daemon or DOM.
+    _test: {
+      setSessionToken: function (t) { session.token = String(t || ''); },
+      getUpdateState: function () { return updateState; },
+      startUpdate: startUpdate
+    },
     debug: function () {
       return {
         authed: Boolean(session && session.token),

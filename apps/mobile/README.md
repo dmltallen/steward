@@ -32,6 +32,13 @@ The product is a perpetual license: no subscription in any copy or flow.
   and the last conversation restores fully offline.
 - **Screens.** Onboarding (3 slides), Pair (real), Chat (streaming),
   Conversations, Settings/License, About.
+- **Updates.** On foreground (and via Settings) the app asks the daemon
+  `GET /v1/update/check`; a non-modal notice shows the newer app version and
+  notes with a one-tap install. Pre-store, install verifies the downloaded
+  APK's sha256 against the daemon-verified signed manifest and falls back to
+  a copyable link on verification failure; the store path is the 1.1 route
+  and drops in via `buildInstallAction` without screen changes. Auto-check
+  on/off is persisted and defaults on; when off, no check is requested.
 - **License.** Settings reads `GET /v1/license` and shows free vs perpetual,
   with no subscription anywhere. The daemon 0.2.0 route set (S2) does not
   serve `/v1/license` yet, so the app reports that state honestly instead of

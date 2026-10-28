@@ -22,6 +22,7 @@ import type {
   ConversationSummary,
   HealthInfo,
   LicenseReport,
+  UpdateCheckReport,
 } from './types';
 
 export type NetErrorKind = 'http' | 'network' | 'aborted';
@@ -287,6 +288,50 @@ export async function getLicenseAuthed(
   } catch {
     return { state: 'error', reason: 'license endpoint returned unreadable data' };
   }
+}
+
+/**
+ * GET /v1/update/check. Bearer-gated like every data route. Returns the
+ * schema-v2 report: catalog + app halves plus the verified manifest, so the
+ * mobile app can find its own APK payload among the per-platform entries.
+ */
+export async function checkUpdateAuthed(
+  baseUrl: string,
+  token: string,
+  timeoutMs = 8000,
+): Promise<UpdateCheckReport> {
+  const res = await fetchT(baseUrl, '/v1/update/check', {
+    headers: authHeaders(token),
+    timeoutMs,
+  });
+  return (await jsonOrThrow(res, 'update check')) as UpdateCheckReport;
+}
+
+export type { UpdateCheckReport };
+
+/**
+ * Fetch a file (e.g. the APK payload). Returns the raw bytes on a 200;
+ * throws StewardError otherwise. No auth header added here: the app payload
+ * URL is vendor-served (relative to the manifest source) and is verified by
+ * sha256 against the signed manifest before anything is installed.
+ */
+export async function fetchBytes(
+  url: string,
+  timeoutMs = 12000,
+): Promise<Uint8Array> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err) {
+    throw toNetworkError('download', err);
+  }
+  if (!res.ok) {
+    throw new StewardError('http', `download failed (${res.status})`, res.status);
+  }
+  const buf = await res.arrayBuffer();
+  return new Uint8Array(buf);
 }
 
 // -- fetch helpers -----------------------------------------------------------

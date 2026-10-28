@@ -1,10 +1,44 @@
 # Steward Architecture
 
-**Version:** 1.5, 2026-10-28 (1.5 adds the schema-v2 OTA envelope that
-carries the app, the /v1/update routes, and the daemon startup check; 1.4
-added the runtime seam, pairing auth, retrieval index and tool connectors;
-1.3 closed the serving-backend question with the vLLM benchmark on U1,
-Ollama stays v1)
+**Version:** 1.6, 2026-10-28 (1.6 adds the update UI: the web and mobile
+clients check-and-notify on open, apply with real progress, and the daemon
+re-execs the applied build in place so the client reconnects; 1.5 added the
+schema-v2 OTA envelope that carries the app, the /v1/update routes, and the
+daemon startup check; 1.4 added the runtime seam, pairing auth, retrieval
+index and tool connectors; 1.3 closed the serving-backend question with the
+vLLM benchmark on U1, Ollama stays v1)
+
+## What changed in 1.6
+
+The update capability from 1.5 now reaches people through both clients.
+The check that runs when the app opens shows a notice for a newer build;
+one click downloads it with real progress, verifies and applies it, and the
+daemon replaces itself with the new build.
+
+- **Web client one-click UI.** `GET /v1/update/check` runs on load (auto-
+  check on by default, toggle in Settings). A non-modal notice shows the
+  new version, release notes/URL and an Update button. `POST /v1/update/
+  apply` with `Accept: text/event-stream` streams `progress` (bytes/total),
+  `phase` (verify/apply/restart) and a final `result` event; the default
+  (no SSE) request still returns the single JSON result the CLI uses.
+- **Daemon restart.** On a successful app apply the response carries
+  `restart_intent` and a manual `steward update apply` command. The `serve`
+  path installs `ctx.restart_app_fn`, which re-execs the installed app
+  binary in place with the same serve flags (`os.execv`). Clients show a
+  "Reconnecting to Steward..." state, poll `/health`, and land back in Chat
+  with history intact (session token and conversations are server-side).
+  Tests and embedded daemons see the intent without exec'ing.
+- **Mobile client.** The same foreground check and Settings rows
+  (`apps/mobile/src/lib/updates.ts`, `install.ts`, the `useUpdateNotice`
+  hook, and the `UpdateNotice` component). Pre-store installs verify the
+  downloaded APK's sha256 against the daemon-verified manifest and fall
+  back to a copyable link when verification fails; the store path drops in
+  via `buildInstallAction` without rewriting the screens.
+- **Human-readable notices.** No jargon: "Steward 1.2.0 is ready to
+  install", notes or changelog link, and a copyable manual command on any
+  refusal so nobody is left on a dead screen. A separate scheduled process
+  that pings later is explicitly out of scope; the check runs when the user
+  opens the app.
 
 ## What changed in 1.5
 

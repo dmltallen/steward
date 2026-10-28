@@ -11,7 +11,7 @@ export const config = {
   daemonPort: 3877,
   daemonUrl: process.env.EXPO_PUBLIC_STEWARD_DAEMON_URL ?? 'http://127.0.0.1:3877',
   appName: 'Steward',
-  version: '0.2.0',
+  version: '0.3.0',
   /** Perpetual license only. Free trial is a time-limited evaluation, never a subscription. */
   get appTagline(): string {
     return this.appName + ': the intelligence you own';

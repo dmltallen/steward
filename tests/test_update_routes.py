@@ -200,9 +200,9 @@ def test_check_and_apply_require_bearer(start_daemon):
 
 def test_check_reports_update_over_http(start_daemon, vendor, monkeypatch, env):
     key = ota_mod.platform_key(env["tmp"])
-    blob = make_app_binary(env["tmp"] / "steward-app.bin", "1.2.0")
+    blob = make_app_binary(env["tmp"] / "steward-app.bin", "1.3.0")
     doc = manifest_doc(vendor, app=app_block(
-        version="1.2.0", key=key, payload={"url": "steward-app.bin",
+        version="1.3.0", key=key, payload={"url": "steward-app.bin",
                                            "sha256": hashlib.sha256(blob).hexdigest(),
                                            "size": len(blob)}))
     server, base = serve({
@@ -215,7 +215,7 @@ def test_check_reports_update_over_http(start_daemon, vendor, monkeypatch, env):
     assert status == 200
     assert body["ok"] is True
     assert body["state"] == "ok"
-    assert body["app"]["latest_version"] == "1.2.0"
+    assert body["app"]["latest_version"] == "1.3.0"
     assert body["app"]["available"] is True
     assert body["catalog"]["latest_version"] == "c1"
     # The check is recorded on the daemon as well.
@@ -307,3 +307,129 @@ def test_apply_refuses_tampered_manifest(start_daemon, vendor, env):
     # Nothing was applied: no app entry, no catalog file.
     assert ota_mod.current_state(env["tmp"]) is None
     server.shutdown()
+
+
+# -- apply progress (SSE), manual command, and restart intent -----------------
+
+
+def make_big_binary(path: Path, version: str, bytes: int) -> bytes:
+    """A large, *valid* steward-like payload: NUL-padding would make the
+    health probe fail (Python rejects NUL in source), which is not what this
+    test wants. The padding ride in a comment so the probe still runs."""
+    body = (b"#!/usr/bin/env python3\nimport sys\n"
+            b"# pad " + b"x" * max(0, bytes) + b"\n"
+            b"print('steward %s')\n" % version.encode())
+    path.write_bytes(body)
+    path.chmod(0o755)
+    return path.read_bytes()
+
+
+def test_apply_streams_sse_progress(start_daemon, vendor, env):
+    """A client asking for text/event-stream gets real download progress
+    events plus a final result, not a single JSON blob at the end."""
+    key = ota_mod.platform_key(env["tmp"])
+    # A payload bigger than the 1 MiB read chunk so progress is observable,
+    # while still being a runnable binary the health probe accepts.
+    blob = make_big_binary(env["tmp"] / "steward-app.bin", "1.1.0",
+                           2 * 1024 * 1024)
+    import hashlib as _h
+    doc = manifest_doc(vendor, app=app_block(
+        version="1.1.0", key=key, payload={"url": "steward-app.bin",
+                                           "sha256": _h.sha256(blob).hexdigest(),
+                                           "size": len(blob)}))
+    server, base = serve({
+        "/manifest.json": json.dumps(doc, sort_keys=True).encode("utf-8"),
+        "/steward-app.bin": blob,
+    })
+    srv, port = start_daemon()
+    srv.ctx.ota_source = base + "/manifest.json"
+
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=20)
+    conn.request("POST", "/v1/update/apply",
+                 headers={"Authorization": "Bearer " + pair_token(srv),
+                          "Accept": "text/event-stream"})
+    resp = conn.getresponse()
+    data = resp.read().decode("utf-8", "replace")
+    conn.close()
+
+    assert resp.status == 200
+    assert resp.getheader("Content-Type", "").startswith("text/event-stream")
+    events = [line[6:].strip() for line in data.splitlines()
+              if line.startswith("data: ") and line != "data: [DONE]"]
+    payloads = [json.loads(e) for e in events[:-1]]
+    # A progress event with numbers arrived, plus a phase apply.
+    progress = [p for p in payloads if p.get("event") == "progress"]
+    assert progress and progress[0]["total"] == len(blob)
+    assert any(p.get("event") == "phase"
+               and p.get("name") == "apply" for p in payloads)
+    result = payloads[-1]["result"]
+    assert result["ok"] is True and result["state"] == "applied"
+    server.shutdown()
+
+
+def test_apply_reports_restart_intent_and_manual_command(start_daemon, vendor, env):
+    """On an applied app swap the route tells the client the daemon is about
+    to be replaced (reconnecting state, not a dead screen) and always carries
+    the manual command as the escape hatch."""
+    key = ota_mod.platform_key(env["tmp"])
+    blob = make_app_binary(env["tmp"] / "steward-app.bin", "1.1.1")
+    doc = manifest_doc(vendor, app=app_block(
+        version="1.1.1", key=key, payload={"url": "steward-app.bin",
+                                           "sha256": hashlib.sha256(blob).hexdigest(),
+                                           "size": len(blob)}))
+    server, base = serve({
+        "/manifest.json": json.dumps(doc, sort_keys=True).encode("utf-8"),
+        "/steward-app.bin": blob,
+    })
+    srv, port = start_daemon()
+    srv.ctx.ota_source = base + "/manifest.json"
+
+    starred = []
+    srv.ctx.restart_app_fn = lambda result: starred.append(result)
+
+    status, body = request(port, "POST", "/v1/update/apply", token=pair_token(srv))
+    assert status == 200
+    assert body["state"] == "applied"
+    assert body["restart_intent"]["pending"] is True
+    assert body["restart_intent"]["version"] == "1.1.1"
+    assert "steward update apply" in body["manual_command"]
+    assert body["manual_command"] == body["restart_intent"]["manual"]
+    # The restart hook fired on a background thread (allow one moment).
+    import time as _t
+    deadline = _t.time() + 3
+    while not starred and _t.time() < deadline:
+        _t.sleep(0.05)
+    assert starred, "restart_app_fn never called"
+    server.shutdown()
+
+
+def test_apply_offer_restart_intent_without_function_is_honest(
+        start_daemon, vendor, env):
+    """Without a restart hook (tests, embedded daemons) the client is still
+    told restart_intent so it can reconnect; nothing is exec'd."""
+    key = ota_mod.platform_key(env["tmp"])
+    blob = make_app_binary(env["tmp"] / "steward-app.bin", "1.3.0")
+    doc = manifest_doc(vendor, app=app_block(
+        version="1.3.0", key=key, payload={"url": "steward-app.bin",
+                                           "sha256": hashlib.sha256(blob).hexdigest(),
+                                           "size": len(blob)}))
+    server, base = serve({
+        "/manifest.json": json.dumps(doc, sort_keys=True).encode("utf-8"),
+        "/steward-app.bin": blob,
+    })
+    srv, port = start_daemon()
+    srv.ctx.ota_source = base + "/manifest.json"
+
+    status, body = request(port, "POST", "/v1/update/apply", token=pair_token(srv))
+    assert status == 200
+    assert body["state"] == "applied"
+    assert body["restart_intent"]["pending"] is True
+    server.shutdown()
+
+
+def test_build_restart_argv_keeps_serve_flags():
+    argv = daemon_mod.build_restart_argv(
+        "/data/ota/app/steward-new", ["--port", "3891", "--model", "qwen3:8b"])
+    assert argv[0] == "/data/ota/app/steward-new"
+    assert argv[1] == "serve"
+    assert "--port" in argv and "3891" in argv

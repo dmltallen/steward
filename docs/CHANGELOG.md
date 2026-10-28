@@ -1,5 +1,42 @@
 # Steward Changelog
 
+## v1.2.0 (2026-10-28)
+
+Updates now reach the person, not just the daemon: the web client and the
+phone app check on open, show a plain-language notice with the new version
+and release notes, and install with one click. The daemon replaces itself
+with the applied build and the clients reconnect on their own.
+
+- **One-click update in the web client.** On load (auto-check on by default)
+  the client asks `GET /v1/update/check`; when a newer signed build is
+  available a non-modal notice appears with the version, notes/notes-url and
+  an Update button. `POST /v1/update/apply` streams real download progress
+  (SSE `progress`/`phase`/`result` events), and after an applied app swap
+  the daemon re-execs the freshly installed binary in place (same serve
+  flags) while the client shows a reconnecting state and lands back in Chat
+  with history intact.
+- **Settings updates card (web + phone).** "Check for updates", current app
+  and daemon versions, and an auto-check toggle (default on). Auto-check off
+  means the client makes no check request at all.
+- **Daemon restart seam.** `steward serve` installs an in-place `os.execv`
+  restart after a successful app apply (the route reports `restart_intent`
+  and the manual `steward update apply` command as the never-a-dead-screen
+  fallback); tests and embedded daemons observe the intent without exec'ing.
+- **Phone (apps/mobile).** Same notice on foreground and in Settings. The app
+  is not in a store yet, so the install path is a signed APK download with
+  sha256 verification against the daemon-verified manifest, falling back to a
+  copyable link when verification fails. Store distribution is the 1.1 route;
+  `apps/mobile/src/lib/install.ts` and `buildInstallAction` are shaped so the
+  store path drops in without rewriting the screens.
+- **Frozen binary serves the webapp.** The PyInstaller spec now bundles the
+  daemon-served SPA assets, so an installed `steward` binary serves the UI.
+
+Proof (docs/images/s15-*): the real notice (`s15-notice-1280x800.png`), the
+live download progress and reconnect states (`s15-update-progress-*`,
+`s15-update-reconnect-*`), and Settings after the swap showing app and daemon
+version 1.2.0 (`s15-settings-1.2.0-*`). `tools/e2e_update.py` runs the full
+old->new frozen-build upgrade plus a tampered-payload refusal end to end.
+
 ## v1.1.0 (2026-10-28)
 
 The signed update envelope now carries the Steward app itself, and the

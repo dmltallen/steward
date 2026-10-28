@@ -28,8 +28,9 @@ Files:
   from /v1/briefs (the S8 memory card); until that route exists the screen
   offers "Generate now" through /v1/summarize.
 - Settings: model, backend mode, data dir, license state, telemetry shown as
-  permanently off, and a pairing QR that carries the discovery URL. The 6
-  digit pairing code is only ever served to the host itself.
+  permanently off, an Updates card (app and daemon versions, "Check for
+  updates", auto-check toggle), and a pairing QR that carries the discovery
+  URL. The 6 digit pairing code is only ever served to the host itself.
 - Pair: enter the 6 digit code to trade it for a 30 day session token. The
   token lives in memory and localStorage; every gated request sends it as a
   Bearer header and a 401 returns here.
