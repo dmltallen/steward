@@ -21,6 +21,10 @@ export type FakeDaemonInit = {
   streamDelayMs?: number; // delay between deltas (and after [DONE])
   conversations?: Record<string, unknown>[]; // GET /v1/conversations body
   keepStreamOpenMs?: number; // hold the stream open after [DONE] if set
+  /** Body served at GET /v1/update/check (Bearer-gated). */
+  updateCheck?: Record<string, unknown>;
+  /** Count how many times /v1/update/check was hit. */
+  trackUpdateChecks?: boolean;
 };
 
 type EffectiveInit = {
@@ -30,6 +34,8 @@ type EffectiveInit = {
   streamDelayMs: number;
   conversations: Record<string, unknown>[];
   keepStreamOpenMs: number | null;
+  updateCheck: Record<string, unknown> | null;
+  trackUpdateChecks: boolean;
 };
 
 const PAIR_CODE = '123456';
@@ -43,6 +49,7 @@ export class FakeDaemon {
   pairCalls = 0;
   chatCalls = 0;
   failPairCalls = 0;
+  updateCheckCalls = 0;
   private init: EffectiveInit;
 
   private constructor(server: Server, init: EffectiveInit) {
@@ -65,11 +72,15 @@ export class FakeDaemon {
       streamDelayMs: 10,
       conversations: [],
       keepStreamOpenMs: null,
+      updateCheck: null,
+      trackUpdateChecks: false,
     };
     const effective: EffectiveInit = {
       ...defaults,
       ...init,
       conversations: init.conversations ?? [],
+      updateCheck: init.updateCheck ?? null,
+      trackUpdateChecks: init.trackUpdateChecks ?? false,
     };
     return new Promise((resolve, reject) => {
       const server = createServer();
@@ -228,6 +239,20 @@ export class FakeDaemon {
     if (path === '/v1/license') {
       // The real daemon 0.2.0 does not serve this route.
       this.json(res, 404, { error: 'not found' });
+      return;
+    }
+
+    if (path === '/v1/update/check' && method === 'GET') {
+      if (!authed) {
+        this.unauthorized(res);
+        return;
+      }
+      this.updateCheckCalls += 1;
+      if (!this.init.updateCheck) {
+        this.json(res, 404, { error: 'not found' });
+        return;
+      }
+      this.json(res, 200, this.init.updateCheck);
       return;
     }
 

@@ -1,0 +1,14 @@
+E2E: one-click update old (1.1.0) -> new (1.2.0) against a local release source
+Date: 2026-10-28
+Tool: tools/e2e_update.py (real frozen binaries, real vendor key, loopback signed manifest)
+
+Observed:
+  release source: http://127.0.0.1:43003/update.json
+  running daemon version: 1.1.0
+  check: 1.2.0 available (running 1.1.0)
+  apply: installed 1.2.0 (restart pending)
+  manual command: steward update apply --source http://127.0.0.1:43003/update.json
+  daemon is back, version changed to 1.2.0
+  new binary answers `version`: steward 1.2.0
+  tampered apply refused: checksum mismatch ... (the .part file was discarded)
+  after tamper the daemon answers (old install intact): 1.2.0

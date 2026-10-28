@@ -24,6 +24,9 @@ import { SessionManager } from '../lib/session';
 import { StewardClient, StewardError } from '../lib/client';
 import { sessionStore } from '../lib/sessionStore';
 import { useSession } from '../hooks/useSession';
+import { useUpdateNotice } from '../hooks/useUpdateNotice';
+import { UpdateNotice } from '../components/UpdateNotice';
+import { config } from '../config';
 import type { ChatMessage, Session } from '../lib/types';
 
 type Props = BottomTabScreenProps<MainTabParamList, 'Chat'>;
@@ -53,6 +56,17 @@ export function ChatScreen({ navigation, route }: Props) {
   const [offline, setOffline] = useState(false);
   const [online, setOnline] = useState<boolean | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [updateResult, setUpdateResult] = useState<{
+    ok: boolean;
+    detail: string;
+    link: string | null;
+  } | null>(null);
+
+  const updateNotice = useUpdateNotice({
+    storage: rnStorage,
+    clientFactory: (s) => StewardClient.fromSession(s, cache),
+  });
 
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
@@ -289,6 +303,50 @@ export function ChatScreen({ navigation, route }: Props) {
     haptic.warning();
   }, [sessions]);
 
+  const installUpdate = useCallback(async () => {
+    const plan = updateNotice.state.plan;
+    if (!client || !plan || installingUpdate) return;
+    setInstallingUpdate(true);
+    setUpdateResult(null);
+    try {
+      const report = await client.checkUpdate();
+      const { Linking, Share } = await import('react-native');
+      const outcome = await import('../lib/install').then((m) =>
+        m.installMobileUpdate(report, config.version, {
+          open: async (url) => {
+            try {
+              await Linking.openURL(url);
+              return true;
+            } catch {
+              return false;
+            }
+          },
+          share: async (url, message) => {
+            try {
+              await Share.share({ message });
+              return true;
+            } catch {
+              return false;
+            }
+          },
+        }),
+      );
+      setUpdateResult({
+        ok: outcome.ok,
+        detail: outcome.detail,
+        link: outcome.link,
+      });
+    } catch (err) {
+      setUpdateResult({
+        ok: false,
+        detail: err instanceof Error ? err.message : String(err),
+        link: null,
+      });
+    } finally {
+      setInstallingUpdate(false);
+    }
+  }, [client, updateNotice.state.plan, installingUpdate]);
+
   if (!session) {
     return (
       <View style={[styles.screen, styles.center, { backgroundColor: c.bg }]}>
@@ -357,6 +415,32 @@ export function ChatScreen({ navigation, route }: Props) {
             keyExtractor={(m) => m.id}
             ListHeaderComponent={
               <View style={styles.listHeader}>
+                {updateNotice.state.plan?.available ? (
+                  <UpdateNotice
+                    plan={updateNotice.state.plan}
+                    storage={rnStorage}
+                    installing={installingUpdate}
+                    onInstall={() => void installUpdate()}
+                  />
+                ) : null}
+                {updateResult ? (
+                  <View
+                    style={[
+                      styles.errorBanner,
+                      { backgroundColor: updateResult.ok ? c.surface : c.warning, borderColor: c.border },
+                    ]}
+                  >
+                    <Ionicons
+                      name={updateResult.ok ? 'checkmark-circle-outline' : 'alert-circle-outline'}
+                      size={16}
+                      color={c.onBrand}
+                    />
+                    <StewardText variant="caption" style={styles.errorBannerText}>
+                      {updateResult.detail}
+                      {updateResult.link ? `\n${updateResult.link}` : ''}
+                    </StewardText>
+                  </View>
+                ) : null}
                 {error ? (
                   <View style={[styles.errorBanner, { backgroundColor: c.warning, borderColor: c.border }]}>
                     <Ionicons name="alert-circle-outline" size={16} color={c.onBrand} />

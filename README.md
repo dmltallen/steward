@@ -99,6 +99,14 @@ as licenses, so a tampered manifest or payload is refused before anything
 is installed. The release flow publishes the signed manifest with
 `tools/mint_manifest.py`.
 
+The web app and the phone app also check when you open them: a notice shows
+the new version and notes, and one click downloads, verifies, applies and
+restarts the daemon, which comes back to the same conversation. Auto-check
+on/off and a manual "Check for updates" live in Settings on both clients.
+Screenshots of the notice, the progress bar and the post-restart reconnect
+are in `docs/images/s15-*`; `tools/e2e_update.py` proves the old-to-new
+upgrade end to end.
+
 ## What it does with your data
 
 Everything is stored under one data root, `~/.steward` by default

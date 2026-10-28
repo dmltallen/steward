@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { MainTabParamList } from '../navigation/types';
@@ -14,6 +14,13 @@ import { ConversationCache } from '../lib/cache';
 import { SessionManager } from '../lib/session';
 import { StewardClient, StewardError } from '../lib/client';
 import { useSession } from '../hooks/useSession';
+import { useUpdateNotice } from '../hooks/useUpdateNotice';
+import {
+  autocheckEnabled,
+  setAutocheck,
+} from '../lib/updatesStore';
+import { installMobileUpdate } from '../lib/install';
+import { resolvePayloadUrl } from '../lib/updates';
 import { sessionStore } from '../lib/sessionStore';
 import { config } from '../config';
 import type { HealthInfo, LicenseReport } from '../lib/types';
@@ -35,6 +42,18 @@ export function SettingsScreen({ navigation }: Props) {
   const [license, setLicense] = useState<LicenseReport | null>(null);
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [licenseLoading, setLicenseLoading] = useState(false);
+  const [autoCheck, setAutoCheck] = useState(true);
+  const [updatingMobile, setUpdatingMobile] = useState<string | null>(null);
+  const [installResult, setInstallResult] = useState<{
+    ok: boolean;
+    detail: string;
+    link: string | null;
+  } | null>(null);
+
+  const updateNotice = useUpdateNotice({
+    storage: rnStorage,
+    clientFactory: (s) => StewardClient.fromSession(s, cache),
+  });
 
   const load = useCallback(async () => {
     if (!client) return;
@@ -56,6 +75,71 @@ export function SettingsScreen({ navigation }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Load the persisted auto-check toggle (default on) once on mount.
+  useEffect(() => {
+    let alive = true;
+    void autocheckEnabled(rnStorage).then((on) => {
+      if (alive) setAutoCheck(on);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const toggleAutoCheck = useCallback(async (on: boolean) => {
+    setAutoCheck(on);
+    await setAutocheck(rnStorage, on);
+  }, []);
+
+  const onInstallMobile = useCallback(async () => {
+    if (!client || !updateNotice.state.plan) return;
+    const { plan } = updateNotice.state;
+    setUpdatingMobile(plan.toVersion);
+    setInstallResult(null);
+    setAutocheck(rnStorage, true);
+    try {
+      const report = await client.checkUpdate();
+      const outcome = await installMobileUpdate(
+        report,
+        config.version,
+        {
+          open: async (url) => {
+            const { Linking } = await import('react-native');
+            try {
+              await Linking.openURL(url);
+              return true;
+            } catch {
+              return false;
+            }
+          },
+          share: async (url, message) => {
+            const { Share } = await import('react-native');
+            try {
+              await Share.share({ message });
+              return true;
+            } catch {
+              return false;
+            }
+          },
+        },
+        undefined, // store appId (the 1.1 store route)
+      );
+      setInstallResult({
+        ok: outcome.ok,
+        detail: outcome.detail,
+        link: outcome.link,
+      });
+    } catch (err) {
+      setInstallResult({
+        ok: false,
+        detail: err instanceof Error ? err.message : String(err),
+        link: resolvePayloadUrl(plan, session ? `${session.host}` : '') || null,
+      });
+    } finally {
+      setUpdatingMobile(null);
+    }
+  }, [client, updateNotice.state.plan, session]);
 
   const unpair = useCallback(async () => {
     await sessions.clear();
@@ -164,6 +248,80 @@ export function SettingsScreen({ navigation }: Props) {
       </Card>
 
       <View style={styles.section}>
+        <StewardText variant="caption" tertiary style={styles.sectionLabel}>UPDATES</StewardText>
+        <Card>
+          <ListRow
+            icon="refresh-outline"
+            title="Check for updates"
+            subtitle={
+              updateNotice.state.checking
+                ? 'Checking\u2026'
+                : updateNotice.state.plan?.available
+                  ? `Steward ${updateNotice.state.plan.toVersion} is available`
+                  : updateNotice.state.error
+                    ? 'Check failed \u2014 tap to retry'
+                    : 'Last check ' +
+                      (updateNotice.state.checkedAt
+                        ? new Date(updateNotice.state.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        : 'never')
+            }
+            right={updateNotice.state.checking ? '...' : undefined}
+            onPress={() => void updateNotice.check(true)}
+          />
+          {updateNotice.state.plan?.available ? (
+            <View style={styles.updateActions}>
+              <Button
+                label={updatingMobile ? 'Downloading\u2026' : `Install Steward ${updateNotice.state.plan.toVersion}`}
+                icon="download-outline"
+                disabled={updatingMobile !== null}
+                onPress={() => void onInstallMobile()}
+              />
+            </View>
+          ) : null}
+          {installResult ? (
+            <StewardText
+              variant="caption"
+              color={installResult.ok ? undefined : c.danger}
+              secondary={installResult.ok}
+            >
+              {installResult.detail}
+              {installResult.link ? `\nLink: ${installResult.link}` : ''}
+            </StewardText>
+          ) : null}
+          <ListRow
+            icon="phone-portrait-outline"
+            title="App version"
+            right={config.version}
+          />
+          <ListRow
+            icon="server-outline"
+            title="Daemon version"
+            right={health?.version ?? 'not reported'}
+          />
+        </Card>
+        <Card>
+          <ListRow
+            icon="notifications-outline"
+            title="Auto-check updates"
+            subtitle="Ask the daemon when this app opens"
+            onPress={() => void toggleAutoCheck(!autoCheck)}
+          />
+          <View style={styles.toggleRow}>
+            <StewardText variant="caption" secondary>
+              Check automatically on open
+            </StewardText>
+            <Switch
+              accessibilityLabel="Auto-check updates"
+              value={autoCheck}
+              onValueChange={(v) => void toggleAutoCheck(v)}
+              trackColor={{ false: c.separator, true: c.brand }}
+              thumbColor={c.onBrand}
+            />
+          </View>
+        </Card>
+      </View>
+
+      <View style={styles.section}>
         <StewardText variant="caption" tertiary style={styles.sectionLabel}>CONNECTION</StewardText>
         <Card>
           <ListRow
@@ -243,4 +401,12 @@ const styles = StyleSheet.create({
   section: { gap: 10 },
   sectionLabel: { marginLeft: 4 },
   foot: { marginTop: 8 },
+  updateActions: { paddingTop: 2, paddingBottom: 4 },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    gap: 12,
+  },
 });

@@ -33,6 +33,8 @@
   <main class="content">
     <noscript><p class="card note">Steward needs JavaScript to run. This page is safe; every bit stays on the machine.</p></noscript>
 
+    <div id="update-notice" class="update-notice" hidden role="status" aria-live="polite"></div>
+
     <section id="screen-chat" class="screen chat-screen" hidden>
       <aside class="conv-list" aria-label="Conversations">
         <div class="conv-head">
@@ -95,6 +97,10 @@
     <section id="screen-settings" class="screen" hidden>
       <h1>Settings</h1>
       <p class="lede">This machine, this box, your data.</p>
+      <div class="card">
+        <h2>Updates</h2>
+        <dl id="update-fields" class="field-list"></dl>
+      </div>
       <div class="card">
         <h2>Runtime</h2>
         <dl id="settings-fields" class="field-list"></dl>

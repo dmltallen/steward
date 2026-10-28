@@ -10,6 +10,7 @@
 import { ConversationCache, toCachedConversation } from './cache';
 import type { StorageLike } from './cache';
 import {
+  checkUpdateAuthed,
   createConversationAuthed,
   deleteConversationAuthed,
   fetchHealth,
@@ -29,6 +30,7 @@ import type {
   HealthInfo,
   LicenseReport,
   Session,
+  UpdateCheckReport,
 } from './types';
 
 export type PairPersistOptions = {
@@ -184,6 +186,11 @@ export class StewardClient {
   /** License report from GET /v1/license (free vs perpetual). */
   license(): Promise<LicenseReport> {
     return getLicenseAuthed(this.baseUrl, this.token);
+  }
+
+  /** Schema-v2 update report from GET /v1/update/check (bearer-gated). */
+  checkUpdate(): Promise<UpdateCheckReport> {
+    return checkUpdateAuthed(this.baseUrl, this.token);
   }
 }
 

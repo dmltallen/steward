@@ -432,3 +432,109 @@ def test_webapp_files_search_empty_index(start_daemon):
     token = pair(port)
     status, resp = request(port, "POST", "/v1/files/search", body={"query": "nothing"}, token=token)
     assert status == 200 and resp["hits"] == []
+
+
+# -- client update logic (node harness over the real app.js) -------------------
+
+
+def run_node_async(script):
+    """Run a Node script with top-level await support (--input-type=module).
+    The script should write its result to stdout; we assert the exit code."""
+    node = node_available()
+    if not node:
+        pytest.skip("node not installed on this host")
+    proc = subprocess.run(
+        [node, "--input-type=module", "-e", script], capture_output=True,
+        text=True, timeout=40)
+    assert proc.returncode == 0, "node harness failed:\n%s" % proc.stderr
+    return proc.stdout
+
+
+def update_harness(body):
+    """Load app.js with a fake localStorage/fetch/Response so the update
+    module's autocheck + check paths run without a daemon or a DOM."""
+    app = (WEBAPP_DIR / "app.js").read_text(encoding="utf-8")
+    fixture = json.dumps(UPDATE_FIXTURE)
+    return (
+        "globalThis.localStorage = (() => { const m = new Map(); return {\n"
+        "  getItem: k => (m.has(k) ? m.get(k) : null),\n"
+        "  setItem: (k, v) => m.set(k, v),\n"
+        "  removeItem: k => m.delete(k),\n"
+        "}; })();\n"
+        "const UPDATE_FIXTURE = " + fixture + ";\n"
+        "let fetchCalls = [];\n"
+        "globalThis.fetch = async (url, opts) => {\n"
+        "  fetchCalls.push(String(url));\n"
+        "  if (String(url).endsWith('/v1/update/check')) {\n"
+        "    return new Response(JSON.stringify(UPDATE_FIXTURE), { status: 200 });\n"
+        "  }\n"
+        "  return new Response('{}', { status: 200 });\n"
+        "};\n"
+        "const appjs = " + json.dumps(app) + ";\n"
+        "eval(appjs);\n"
+        + "\n".join(body)
+    )
+
+
+UPDATE_FIXTURE = {
+    "ok": True,
+    "state": "ok",
+    "available": True,
+    "catalog": {"available": False, "current_version": "embedded",
+                "latest_version": "2026-10-28.1", "model_count": 40,
+                "released": "2026-10-28"},
+    "app": {"available": True, "current_version": "1.0.1",
+            "latest_version": "1.1.0", "released": "2026-10-28",
+            "notes": "Faster first token", "notes_url": None,
+            "min_source_version": "1.0.0", "payload_for_platform": True},
+    "source": "http://127.0.0.1:9/nope.json",
+    "checked_at": "2026-10-28T19:00:00Z",
+    "manifest": {"version": "2026-10-28.1"},
+}
+
+
+def test_client_autocheck_off_makes_no_request():
+    # The acceptance: auto-check off means the client makes NO check request.
+    # With the pref stored off and a valid session, maybeCheckForUpdates must
+    # not call /v1/update/check.
+    out = run_node_async(update_harness([
+        "const S = globalThis.Steward;",
+        "S.setUpdateAutocheck(false);",
+        "S._test.setSessionToken('tok');",
+        "await S.maybeCheckForUpdates(false);",
+        "if (fetchCalls.some(u => u.includes('/v1/update/check'))) throw new Error('check requested while auto-check off');",
+        "if (S.updateAutocheckEnabled()) throw new Error('toggle did not stick');",
+        "console.log('NOCHECK_OK');",
+    ]))
+    assert "NOCHECK_OK" in out
+
+
+def test_client_autocheck_on_requests_and_flags_available():
+    # Default is on: a load-time auto-check fires /v1/update/check and the
+    # module records the newer app version as available.
+    out = run_node_async(update_harness([
+        "const S = globalThis.Steward;",
+        "S._test.setSessionToken('tok');",
+        "if (!S.updateAutocheckEnabled()) throw new Error('default should be on');",
+        "await S.maybeCheckForUpdates(false);",
+        "if (!fetchCalls.some(u => u.includes('/v1/update/check'))) throw new Error('auto-check did not fire');",
+        "const st = S._test.getUpdateState();",
+        "if (!st.available) throw new Error('newer app not flagged available');",
+        "if ((st.last.app.latest_version) !== '1.1.0') throw new Error('latest version not recorded');",
+        "console.log('CHECK_OK');",
+    ]))
+    assert "CHECK_OK" in out
+
+
+def test_client_check_forced_even_when_autocheck_off():
+    # The Settings "Check for updates" button always works regardless of the
+    # auto-check toggle (force bypasses the pref).
+    out = run_node_async(update_harness([
+        "const S = globalThis.Steward;",
+        "S.setUpdateAutocheck(false);",
+        "S._test.setSessionToken('tok');",
+        "await S.maybeCheckForUpdates(true);",
+        "if (!fetchCalls.some(u => u.includes('/v1/update/check'))) throw new Error('forced check did not fire');",
+        "console.log('FORCE_OK');",
+    ]))
+    assert "FORCE_OK" in out

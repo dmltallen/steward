@@ -218,10 +218,27 @@ class DaemonContext:
             "checked_at": None, "source": None, "error": None,
         }
         self._update_lock = threading.Lock()
+        # How a client-triggered app restart happens. Empty in tests and when
+        # the daemon runs embedded (create_server never installs one); the CLI
+        # `serve` path sets it to an in-place exec of the freshly applied app
+        # binary, which is what makes "one-click update, daemon restarts into
+        # the new build, client reconnects" real. The route only reports
+        # restart_intent; whether anything flies depends on this callback.
+        self.restart_app_fn = None
+        # The serve flags the daemon was started with (the CLI `serve` path
+        # sets this), so the restart step can re-exec the applied binary with
+        # the exact same port/model/source flags.
+        self.serve_argv: list[str] = []
 
     def record_update_status(self, result: dict) -> None:
         with self._update_lock:
             self.update_status = dict(result)
+
+    def manual_update_command(self) -> str:
+        """The command a person can run by hand when auto-restart is off or
+        fails. This is the never-a-dead-screen escape hatch the client shows
+        next to every refusal or error."""
+        return "steward update apply --source %s" % self.update_source()
 
     def update_source(self) -> str:
         """The effective update source, resolved once from config/env."""
@@ -743,20 +760,61 @@ class Handler(BaseHTTPRequestHandler):
         (sha256 enforced, resumable), then apply_update whose atomic pointer
         rename is the commit point and whose health probe restores the previous
         app binary on failure.
+
+        Two response modes, chosen by the request Accept header:
+
+          * default (application/json or no Accept): one JSON result at the
+            end, exactly as the CLI and the base OTA tests expect;
+          * Accept: text/event-stream: SSE progress. Events are
+            {"event":"progress","done":N,"total":M} during the download,
+            {"event":"phase","name":"verify|apply|restart"}, and a final
+            {"event":"result","result":{...}} plus [DONE]. The web client uses
+            this mode so a big payload shows real progress instead of a blank
+            button.
+
+        On a successful app install the response carries `restart_intent`
+        (the daemon is being replaced by the new build) and `manual_command`
+        (what a person can run by hand if the daemon does not come back). The
+        actual re-exec happens in ctx.restart_app_fn, which the `serve` CLI
+        installs and tests leave empty, so a unit test can assert the intent
+        without killing the test process.
         """
         from steward import ota as ota_mod
         root = self._data_root_path()
         source = self.ctx.update_source()
+        stream = (self.headers.get("Accept") or "").find("text/event-stream") != -1
+
+        def emit(obj: dict) -> None:
+            if stream:
+                self._sse(obj)
+
+        def progress(done, total) -> None:
+            emit({"event": "progress", "done": done, "total": total})
+
         try:
+            if stream:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "close")
+                self.end_headers()
             doc = ota_mod.fetch_document(source)
             payload = ota_mod.verify_manifest(doc)   # tampered == refused here
+            emit({"event": "phase", "name": "verify"})
             staged = None
             if payload.get("app") is not None:
-                staged = ota_mod.stage_app_payload(doc, source=source, root=root)
+                staged = ota_mod.stage_app_payload(
+                    doc, source=source, root=root, progress=progress)
                 if not staged["staged"]:
-                    self._json(200, {"ok": False, "state": "refused",
-                                     "error": staged["reason"], "source": source})
+                    result = {"ok": False, "state": "refused",
+                              "error": staged["reason"], "source": source,
+                              "manual_command": self.ctx.manual_update_command()}
+                    emit({"event": "result", "result": result})
+                    emit({"event": "phase", "name": "done"})
+                    self._sse_done()
+                    self.ctx.record_update_status(result)
                     return
+            emit({"event": "phase", "name": "apply"})
             probe = (ota_mod.app_binary_probe(staged["path"], staged["version"])
                      if staged is not None and staged["staged"]
                      else ota_mod.backend_health_probe(self.ctx.model))
@@ -768,12 +826,113 @@ class Handler(BaseHTTPRequestHandler):
             result["state"] = ("applied" if result["ok"]
                                else "rolled_back" if result["rolled_back"]
                                else "noop")
+            result["manual_command"] = self.ctx.manual_update_command()
+            # Tell the client when the daemon is about to be replaced so it can
+            # show a reconnecting state instead of a dead screen. The re-exec
+            # itself is ctx.restart_app_fn, installed only by the `serve` path.
+            if result["state"] == "applied" and (result.get("app") or {}).get(
+                    "installed"):
+                result["restart_intent"] = {
+                    "pending": True,
+                    "version": (result.get("app") or {}).get("version"),
+                    "manual": self.ctx.manual_update_command(),
+                }
+                # Fire-and-forget the real re-exec (None in tests / embedded).
+                if self.ctx.restart_app_fn is not None:
+                    emit({"event": "phase", "name": "restart"})
+                    self._flush_stream()
+                    self._schedule_restart_apply(result)
             self.ctx.record_update_status(result)
-            self._json(200, result)
+            if stream:
+                emit({"event": "result", "result": result})
+                emit({"event": "phase", "name": "done"})
+                self._sse_done()
+            else:
+                self._json(200, result)
         except Exception as exc:  # noqa: BLE001 - OTA refusal/error is a body
-            self._json(200, {"ok": False,
-                             "state": self._ota_failure_state(exc),
-                             "error": str(exc), "source": source})
+            result = {"ok": False,
+                      "state": self._ota_failure_state(exc),
+                      "error": str(exc), "source": source,
+                      "manual_command": self.ctx.manual_update_command()}
+            self.ctx.record_update_status(result)
+            if stream:
+                emit({"event": "result", "result": result})
+                emit({"event": "phase", "name": "done"})
+                self._sse_done()
+            else:
+                self._json(200, result)
+
+    def _flush_stream(self) -> None:
+        try:
+            self.wfile.flush()
+        except Exception:  # noqa: BLE001 - flush is best effort mid-restart
+            pass
+
+    def _schedule_restart_apply(self, result: dict) -> None:
+        """Hand the applied app to the daemon's restart hook on another thread.
+
+        ctx.restart_app_fn replaces the running image with the freshly applied
+        app binary (`os.execv` the installed payload with `serve` args). It is
+        only installed by the CLI `serve` path; tests and embedded daemons keep
+        it None and observe restart_intent instead. Running the re-exec on a
+        thread means the SSE response is fully flushed before the image is
+        replaced, and the client reconnects on its own.
+        """
+        fn = self.ctx.restart_app_fn
+        if fn is None:
+            return
+
+        def _go() -> None:
+            time.sleep(1.0)  # let the result event + [DONE] reach the client
+            try:
+                import os as _os
+                _os.environ.setdefault("STEWARD_RESTART_TRACE", "")
+                if _os.environ.get("STEWARD_RESTART_TRACE"):
+                    with open(_os.environ["STEWARD_RESTART_TRACE"], "a") as _fh:
+                        _fh.write("restart hook fired at %s\n" % time.time())
+                fn(result)
+            except Exception:  # noqa: BLE001 - a failed restart keeps the daemon alive
+                import sys
+                print("  update: restart step failed (%s); "
+                      "the current build is still serving"
+                      % sys.exc_info()[1], file=sys.stderr)
+
+        threading.Thread(target=_go, daemon=True, name="steward-update-restart").start()
+
+
+def build_restart_argv(app_path: str, serve_argv: list[str]) -> list[str]:
+    """argv for re-exec'ing the daemon into a freshly applied app binary.
+
+    The installed payload is a full `steward` binary; re-running it with the
+    same subcommand and flags as the current process (public API, not
+    internals) keeps the port, model, source and other serve flags identical
+    across the swap, so the client reconnects to the same address.
+    """
+    return [str(app_path), "serve"] + list(serve_argv or [])
+
+
+def restart_into_app(result: dict, serve_argv: list[str]) -> dict:
+    """In-place re-exec of the running daemon into the applied app binary.
+
+    Called from the `serve` CLI path only. The health probe during apply
+    already proved the installed payload answers `steward version`, so the
+    exec here is the controlled second step: same process, new image, port
+    rebound by the fresh daemon. Returns a dict (never raises) so the caller
+    has an honest reason on a machine where exec fails.
+    """
+    from steward import ota as ota_mod
+    app = (result or {}).get("app") or {}
+    installed = bool(app.get("installed"))
+    path = app.get("path")
+    if not installed or not path or not Path(path).is_file():
+        return {"restarted": False,
+                "reason": "no installed app binary to re-exec"}
+    argv = build_restart_argv(path, serve_argv)
+    try:
+        os.execv(path, argv)  # replaces this process image
+    except Exception as exc:  # noqa: BLE001 - report, keep the old build serving
+        return {"restarted": False, "reason": str(exc)}
+    return {"restarted": True}  # only reached on a broken execv in tests
 
 
 class StewardServer(ThreadingHTTPServer):
@@ -893,6 +1052,14 @@ def main(argv=None) -> int:
     server = create_server((args.host, args.port), runtime=runtime,
                            model=args.model, source_dir=args.source,
                            advertise=not args.no_mdns)
+
+    # One-click update: after a successful apply the freshly installed app
+    # binary replaces this process in place (`os.execv` with the same serve
+    # flags). Only the real `serve` path installs the hook; tests and embedded
+    # daemons keep it None and observe restart_intent on the route result.
+    ctx = server.ctx
+    ctx.serve_argv = list(argv or [])
+    ctx.restart_app_fn = lambda result: restart_into_app(result, ctx.serve_argv)
 
     # S8 scheduler: start the job thread (morning brief, user jobs). It reads
     # <data>/jobs.json (seeded with the default when absent) and never blocks

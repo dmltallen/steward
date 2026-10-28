@@ -32,8 +32,16 @@ VERSION = _project_version()
 # steward.webapp does not exist yet. If it is added later, it is bundled
 # automatically (no spec change needed).
 HIDDEN_IMPORTS = ["steward.server", "steward.server.daemon"]
-if (SRC_DIR / "steward" / "webapp.py").exists() or (SRC_DIR / "steward" / "webapp").exists():
+DATAS = [
+    (str(ROOT_DIR / "pyproject.toml"), "."),
+    (str(ROOT_DIR / "pyproject.toml"), "steward"),
+]
+WEBAPP_DIR = SRC_DIR / "steward" / "webapp"
+if WEBAPP_DIR.is_dir():
     HIDDEN_IMPORTS.append("steward.webapp")
+    # Bundle the daemon-served single-page client so a frozen daemon serves
+    # the UI too (S5; the webapp is static assets, not Python).
+    DATAS.append((str(WEBAPP_DIR), "steward/webapp"))
 
 a = Analysis(
     # Entry point is packaging/launcher.py, not cli.py directly: PyInstaller
@@ -47,10 +55,7 @@ a = Analysis(
     # metadata is absent, which is always true in a one-file binary). It is
     # placed at both the extraction root and the steward/ package dir because
     # the exact virtual path of __file__ differs between one-file builds.
-    datas=[
-        (str(ROOT_DIR / "pyproject.toml"), "."),
-        (str(ROOT_DIR / "pyproject.toml"), "steward"),
-    ],
+    datas=DATAS,
     hiddenimports=HIDDEN_IMPORTS,
     hookspath=[],
     hooksconfig={},
