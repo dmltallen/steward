@@ -377,7 +377,7 @@ handset, and the Windows and macOS legs that were never built.
 | 7 | brief | `steward brief` produced a real brief from the indexed notes | pass after F9 fix |
 | 7b | tools | library present with approval records, but the chat path never calls the tool loop | **fail, F8** |
 | 8 | license | mint for this machine, activate, status; a tampered copy (tier raised to power) refused with exit 1 | pass |
-| 8b | OTA | status reports the embedded catalog (9 models) after F10; `check` needs a manifest URL, `STEWARD_OTA_URL` unset | pass with a config gap |
+| 8b | OTA | status reports the embedded catalog (9 models) after F10; the check resolved the released default with `STEWARD_OTA_URL` unset | pass (fixed after 1.2.0) |
 | 8c | diagnostics | bundle written with members bundle.json, system.txt, versions, redacted config, log tail | pass |
 | 8d | service | systemd user unit failed with the 1.0.0 binary because `serve --port` was rejected (F5); re-verified after the 1.0.1 rebuild | pass after F5 fix |
 | 9 | uninstall | prefix removal leaves the data root; documented as intended | pass |
@@ -430,5 +430,9 @@ a machine. The Makefile now generates the manifest and normalises the unit file
 mode to 0644.
 
 Remaining open after this run: **F8** (tools are library-only, unreachable from
-chat), **F3** (no Windows or macOS binary), **F4** (no citations in chat), and
-the OTA check needing a configured `STEWARD_OTA_URL`.
+chat), **F3** (no Windows or macOS binary), **F4** (no citations in chat). The
+OTA check source-resolution gap is closed (fixed after 1.2.0): `steward ota
+check` now resolves the released default exactly like the daemon, so a stock
+install needs no manifest and no `STEWARD_OTA_URL`. The released default is
+still a private gitea URL, so an unauthenticated fetch returns 404; making it
+publicly reachable is a hosting decision, separate from source resolution.
