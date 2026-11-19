@@ -1,6 +1,6 @@
 # Steward Public Launch Plan
 
-**Version:** 0.2, 2026-11-19 (folds in the GitHub release-practice study and the local-AI monetization study; both are committed under docs/research)
+**Version:** 0.3, 2026-11-19 (code signing recorded as a cost line rather than a gate)
 **Status:** planning. Nothing here is published or decided unless it says DECIDED.
 
 This document is the working plan for moving Steward from a private Gitea repository to a
@@ -111,15 +111,16 @@ Rules, each of which has already bitten or is documented in the field:
 - Signed provenance: `.sha256` sidecars and `SHA256SUMS` exist. Signing `SHA256SUMS` with the
   same ed25519 vendor key lets a downloader verify provenance without trusting the host. Card
   STEWARD-PUBLIC-REPO-BOOTSTRAP.
-- **Code signing reality, stated plainly.** Without a Windows certificate every first run shows
-  SmartScreen "Unknown publisher" on every version, and enterprise policy can block the
-  installer outright; EV certificates stopped bypassing SmartScreen in 2024 and reputation
-  builds only over weeks and hundreds of installs (study 1 finding 5). Azure Trusted Signing at
-  about 9.99 USD per month is the realistic non-Store option. On macOS, distribution effectively
-  requires Developer ID plus notarization since Catalina; an unnotarized release ships with an
-  "Open Anyway" instruction (study 1 finding 6). Either buy both identities and keep one
-  publisher identity forever, or document the warnings honestly. Do not promise a clean first
-  run that will not happen.
+- **Code signing is a cost line, not a gate.** Without a Windows certificate a first run shows
+  SmartScreen "Unknown publisher", enterprise policy can block an unsigned installer, EV
+  certificates stopped bypassing SmartScreen in 2024, and reputation builds only over weeks and
+  hundreds of installs (study 1 finding 5). Azure Trusted Signing at about 9.99 USD per month is
+  the practical non-Store route. On macOS, Developer ID plus notarization is the norm since
+  Catalina and an unnotarized build ships with an "Open Anyway" instruction (study 1 finding 6).
+  Handled this way: the certificates get bought when the first real Windows and macOS artifacts
+  exist, one publisher identity is kept forever after that, and until then the install docs state
+  the warning plainly. No release waits on a certificate, and the docs never promise a clean
+  first run that will not happen.
 
 ## 6. Paid features: what the field proves, and what to build now
 
@@ -197,10 +198,11 @@ release asset, and `DEFAULT_OTA_URL` switched to the public manifest. Exit: anon
 install script and of the manifest both return 200, and a fresh machine installs in one line
 with no token.
 
-**M3, Windows and macOS.** Needs the hosted runners that exist only after M2, plus a decision on
-code signing (Azure Trusted Signing and an Apple Developer ID, or documented warnings). Exit: a
-real `.exe` and a real macOS binary built by CI, hashes published, install docs matching what
-exists, and SmartScreen and Gatekeeper behavior documented from a real run.
+**M3, Windows and macOS.** Needs the hosted runners that exist only after M2. Code signing is a
+cost line inside this gate, not a precondition for it: certificates are bought when the first
+real artifacts exist, and the install docs carry the warning until then. Exit: a real `.exe` and
+a real macOS binary built by CI, hashes published, install docs matching what exists, and
+SmartScreen and Gatekeeper behavior documented from a real run.
 
 **M4, distribution and sales.** winget and Homebrew PRs (fork-and-PR, AV-scanned installers,
 silent install and uninstall, immutable URLs with pinned hashes), phone store submissions as
@@ -213,13 +215,11 @@ consumption-only clients, storefront and license minting. Blocked on M2 and the 
 2. Repository split as in section 3, or a single public repository with the key held outside the
    tree.
 3. History rewrite before publication, or publish the existing history after a secrets scan.
-4. Whether to buy code-signing identities (about 10 USD per month for Azure Trusted Signing plus
-   an Apple Developer membership) before M3, or ship with documented warnings.
-5. Whether the optional off-LAN relay is a paid hosted add-on at launch or later. It is the one
+4. Whether the optional off-LAN relay is a paid hosted add-on at launch or later. It is the one
    recurring line the field supports without breaking the no-subscription rule, because it buys
    running infrastructure rather than gating the product.
-6. Publish pricing at launch or hold the shelf until the A/B test.
-7. Product name and trademark check before any storefront.
+5. Publish pricing at launch or hold the shelf until the A/B test.
+6. Product name and trademark check before any storefront.
 
 ## 9. What is still unmeasured
 
