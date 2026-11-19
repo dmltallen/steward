@@ -157,6 +157,15 @@ packaging/           binary, deb, and store manifests
   `https://github.com/dmltallen/steward`.
 - Release history and measured numbers: docs/CHANGELOG.md.
 
+## Security and contributing
+
+- Security: supported versions, what is in scope for reports, the private
+  reporting route, and how updates are verified are in SECURITY.md.
+- Contributing: the DCO, how to file a good bug report (including `steward
+  doctor --bundle`), the test command, and the one-file-one-owner
+  expectation are in CONTRIBUTING.md. All participants follow
+  CODE_OF_CONDUCT.md.
+
 ## License
 
 MIT (open core; the product business model is separate from the repo

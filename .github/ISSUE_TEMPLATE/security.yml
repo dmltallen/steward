@@ -1,0 +1,31 @@
+name: Security vulnerability (report privately)
+description: Do not post vulnerability details in a public issue. Use the private Security Advisories report.
+title: "[Security]: report privately, not here"
+labels: ["security"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Please do not describe a security vulnerability in this public
+        issue.**
+
+        Report it privately instead, through GitHub Security Advisories with
+        private vulnerability reporting enabled: open the **Security** tab
+        and click **Report a vulnerability**. Only the maintainers can see
+        the report, and it stays private until it is disclosed. The policy,
+        scope and response window are in SECURITY.md.
+
+        If you are unsure whether what you found is a vulnerability, report
+        it privately anyway; an over-cautious private report is never a
+        problem, but a public post can put users who have not yet updated at
+        risk.
+
+        Public posts that contain vulnerability details may be closed
+        without comment. You will not be penalized for reporting privately.
+  - type: textarea
+    id: note
+    attributes:
+      label: Not a vulnerability?
+      description: |
+        If this is not a security issue, close this form and open a regular
+        bug report instead.
