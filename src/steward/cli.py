@@ -247,6 +247,7 @@ def _ota_cmd(argv) -> int:
                 plan.get("capability"), plan.get("assistant"),
                 "yes" if plan.get("vision") else "no"))
         print("updated:  %s" % (st["updated"] or "never"))
+        print("channel:  %s" % st["channel"])
         return 0
 
     # One source resolution for the CLI, identical to the daemon: an explicit
@@ -322,23 +323,40 @@ def _update_cmd(argv) -> int:
             print("update check %s: %s" % (info["state"], info.get("error") or "no source"))
             return 1
         cat, app = info["catalog"], info["app"]
+        channel = info.get("channel") or ota_mod.detect_channel()
         print("catalog:  %s -> %s (%d models)%s" % (
             cat["current_version"], cat["latest_version"], cat["model_count"],
             " [AVAILABLE]" if cat["available"] else ""))
         if app.get("latest_version"):
             payload_note = app["notes_url"] or app["notes"] or ""
-            print("app:      %s -> %s%s%s" % (
-                app["current_version"], app["latest_version"],
-                " [AVAILABLE]" if app["available"] else " (not available)",
-                ("  " + payload_note) if payload_note else ""))
+            if info.get("managed_by"):
+                print("app:      %s -> %s (updates handled by %s; "
+                      "run: %s)" % (app["current_version"], app["latest_version"],
+                                    info["managed_by"],
+                                    info.get("managed_update_command") or "?"))
+            else:
+                print("app:      %s -> %s%s%s" % (
+                    app["current_version"], app["latest_version"],
+                    " [AVAILABLE]" if app["available"] else " (not available)",
+                    ("  " + payload_note) if payload_note else ""))
         else:
             print("app:      manifest carries no app payload for update")
         print("source:   %s" % info["source"])
+        print("channel:  %s" % channel)
         return 0
 
     try:
         doc = ota_mod.fetch_document(source)
         payload = ota_mod.verify_manifest(doc)
+        # A package manager owns this install: the one-click apply is not
+        # allowed to stage or swap the app binary. Refuse before any download
+        # (this is the CLI twin of the daemon route's managed-by guard).
+        refusal = ota_mod.managed_by_update_refusal(channel=ota_mod.detect_channel(),
+                                                    payload=payload)
+        if refusal is not None:
+            print("refused: %s" % refusal["error"])
+            print("channel: %s" % refusal["channel"])
+            return 1
         staged = None
         if payload.get("app") is not None and not args.no_app:
             staged = ota_mod.stage_app_payload(doc, source=source)

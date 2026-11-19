@@ -1,6 +1,16 @@
 cask "steward" do
   version "0.2.0"
 
+  # NEVER add `auto_updates true` here.
+  #
+  # Steward ships an in-app updater, but it refuses to run on a package-managed
+  # install (install channel detection: dpkg/Homebrew/winget own the binary, so
+  # the app does not replace it). For this cask, Homebrew owns updates: users
+  # upgrade with `brew upgrade --cask steward`. Declaring auto_updates would
+  # tell Homebrew the app self-updates and hide the cask from `brew outdated`
+  # while the in-app updater is refusing to run, which strands the install on
+  # an old version. One owner per install is the contract (see docs/RELEASE.md).
+
   # NOT MEASURED: no macOS build exists on this project yet, so this sha256 is
   # a placeholder. Notarization requires an Apple developer account and is a
   # manual step, also NOT MEASURED. Replace this value and the download host
