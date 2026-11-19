@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a reproducible problem with Steward
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. A report with a diagnostics bundle attached
+        can be diagnosed in minutes; one without it can take much longer.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: What did you expect to happen, and what did you actually see?
+      placeholder: "I expected ..., but Steward ..."
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps, starting from a known state if possible.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `steward version`, and the OS and architecture.
+    validations:
+      required: true
+  - type: textarea
+    id: bundle
+    attributes:
+      label: Diagnostics bundle
+      description: |
+        Run `steward doctor --bundle /tmp/steward-bundle.zip` and attach the
+        zip. The bundle is redacted before it is written: session tokens,
+        API keys, bearer values and secret-shaped values are replaced with
+        [REDACTED], home paths and hostnames are hashed, and no license
+        blobs are included. Open it yourself first if you want to confirm.
+      placeholder: "steward doctor --bundle /tmp/steward-bundle.zip"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log lines
+      description: Anything in the bundle's recent-errors.log that relates to the bug.
+      render: shell

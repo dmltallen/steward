@@ -1,0 +1,30 @@
+name: Feature request
+description: Propose a new capability or an improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Steward is owned by its users: no subscription, no telemetry, nothing
+        phones home. Feature requests are triaged against that model. In
+        particular, a proposal must not gate anything that is free today.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is missing or awkward today? Describe the situation, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How you would like Steward to behave.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Other ways to solve the same problem.
