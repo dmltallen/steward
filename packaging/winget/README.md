@@ -1,26 +1,36 @@
-# Winget packaging (dry run)
+# Winget packaging (template only, NOT published)
 
-`Steward.singleton.yaml` is a singleton Windows Package Manager manifest for
-the Steward desktop app and CLI.
+`Steward.singleton.yaml` is a validated Windows Package Manager manifest
+template for Steward as a portable exe, so a working package would install
+with `winget install Steward`.
 
 ## Status
 
-NOT MEASURED. This project has no Windows build yet: PyInstaller does not
-cross-compile, and the only CI runner (u1-runner) is linux/arm64, so no
-windows-amd64 job is queued. The manifest is a validated template: the
-`InstallerUrl` points at a reserved `example.invalid` placeholder and
-`InstallerSha256` is all zeros until a real installer exists.
+NOT MEASURED. There is no Windows build on this project yet: PyInstaller
+cannot cross-compile, u1-runner is linux/arm64 only, and no windows-amd64 job
+ever runs on the gitea board. The manifest is a validated template, not a
+published or even installable package.
+
+## What is still needed before this is a real package
+
+- a Microsoft account, used to publish through the winget-pkgs pipeline,
+- a confirmed publisher id: `Steward.Steward` must be unique on the community
+  repository and match the publishing Microsoft account,
+- a real SHA-256 from the actual built exe, replacing `InstallerSha256`
+  (compute it with `Get-FileHash -Algorithm SHA256`),
+- a public HTTPS `InstallerUrl` (the current value is the reserved
+  `example.invalid` placeholder) and public `PackageUrl`/`PublisherUrl`/
+  `LicenseUrl` pages, because the LAN gitea URLs are private,
+- a PR into `microsoft/winget-pkgs` that passes the winget validation bot.
+
+Publishing is a manual maintainer step outside this repository and is
+NOT MEASURED.
 
 ## Validation
 
-The manifest validates against the official winget singleton JSON schema
+The manifest is validated against the official winget singleton JSON schema
 (`schemas/JSON/manifests/v1.9.0/manifest.singleton.1.9.0.json` from
-microsoft/winget-cli). It is intended for dry-run validation only.
-
-## Publishing (out of scope here)
-
-Publishing a package to the Windows Package Manager community repository
-requires a Microsoft account, a GitHub PR into microsoft/winget-pkgs with the
-manifest set in the canonical directory layout, and passing the winget
-validation bot. Publishing is a manual step done by a maintainer outside this
-repository and is NOT MEASURED.
+microsoft/winget-cli). The exact command and result are quoted in the task
+record for this work, not re-claimed here. Validation confirms the shape is
+correct; it does not make the package installable. The real winget pipeline
+re-validates on submission.

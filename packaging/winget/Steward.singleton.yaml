@@ -1,21 +1,41 @@
-# Steward winget singleton manifest. Dry-run template only, NOT published.
+# Steward winget singleton manifest, TEMPLATE ONLY, NOT published.
 #
-# NOT MEASURED: this project has no Windows build yet (PyInstaller does not
-# cross-compile and u1-runner is linux/arm64 only), so InstallerUrl and
-# InstallerSha256 below are placeholders. Publishing to the Windows Package
-# Manager community repo requires a Microsoft account, is a manual step done
-# outside this repository, and is NOT MEASURED here. See README.md.
+# This is a validated template, not a live package. Steward builds no Windows
+# installer or Windows binary yet, and nothing here has been submitted to the
+# Windows Package Manager community repository. Publishing is NOT MEASURED.
 #
-# To activate: build the installer on a Windows host, fill in the real
-# InstallerUrl and InstallerSha256, then submit via the winget pipeline.
-PackageIdentifier: Steward.Steward
-PackageVersion: 0.2.0
+# To activate, a shipper fills in every field marked "shipper" below:
+#   1. Build the Windows binary on a Windows host or on the windows-latest leg
+#      of .github/workflows/build.yml (it produces steward.exe, staged as
+#      steward-windows-x64.exe). No such build has ever run, so every value
+#      derived from a built exe below is NOT MEASURED.
+#   2. Host the exe at a public HTTPS URL and set InstallerUrl to it.
+#   3. Compute the real SHA-256 with Get-FileHash -Algorithm SHA256 and set
+#      InstallerSha256 to it.
+#   4. Confirm the publisher identity on winget-pkgs: PackageIdentifier
+#      (publisher id) and Publisher must be unique on the community repository
+#      and match the Microsoft account used to publish.
+#   5. Replace PackageUrl, PublisherUrl and LicenseUrl with public pages; the
+#      LAN gitea URLs below are private and are refused by real submissions.
+#   6. Open a PR into microsoft/winget-pkgs with this manifest in the canonical
+#      directory layout under the verified PackageIdentifier. The winget
+#      validation bot must pass. This is a manual maintainer step outside this
+#      repository and is NOT MEASURED here.
+#
+# InstallerType is "portable": the release artifact is a self-contained
+# console exe with no installer and no silent switches, so winget installs it
+# per-user and shims "steward" onto PATH, which is what the documented
+# `winget install Steward` promise needs.
+PackageIdentifier: Steward.Steward # shipper: must be unique on the community repo
+PackageVersion: 1.2.0 # shipper: set to the released version
 PackageLocale: en-US
-Publisher: Steward Project
+Publisher: Steward Project # shipper: must match the Microsoft account
+PublisherUrl: https://github.com/dmltallen/steward # shipper: replace with a public URL
+PublisherSupportUrl: https://github.com/dmltallen/steward # shipper: replace with a public URL
 PackageName: Steward
-PackageUrl: https://github.com/dmltallen/steward
+PackageUrl: https://github.com/dmltallen/steward # shipper: replace with a public URL
 License: MIT
-LicenseUrl: https://github.com/dmltallen/steward/raw/branch/master/LICENSE
+LicenseUrl: https://github.com/dmltallen/steward/raw/branch/master/LICENSE # shipper: replace with a public URL
 ShortDescription: Steward, the personal AI you own, served on hardware you already have.
 Tags:
   - ai
@@ -24,15 +44,12 @@ Tags:
   - assistant
 Installers:
   - Architecture: x64
-    InstallerType: exe
-    InstallerUrl: https://example.invalid/steward-windows-x64.exe
+    InstallerType: portable
+    InstallerUrl: https://example.invalid/steward-windows-x64.exe # shipper: real public URL
+    # shipper: replace with the sha256 of the actual built exe (NOT MEASURED)
     InstallerSha256: "0000000000000000000000000000000000000000000000000000000000000000"
-    InstallerSwitches:
-      Silent: /S
-      SilentWithProgress: /S
-    InstallModes:
-      - silent
-      - silentWithProgress
+    Commands:
+      - steward
     UpgradeBehavior: install
 ManifestType: singleton
 ManifestVersion: 1.9.0

@@ -1,0 +1,128 @@
+# Steward native release builds on GitHub Actions.
+#
+# One-file binaries for linux amd64, linux arm64, windows amd64 and
+# macos arm64, each built natively on a matching hosted runner because
+# PyInstaller cannot cross-compile. Every leg sets up Python, installs
+# pyinstaller and cryptography (plus pytest), runs the test suite, builds the
+# binary, computes its sha256, and uploads the artifact. On a v* tag push the
+# aggregate publish job downloads every leg artifact and attaches it to the
+# GitHub release for that tag.
+#
+# Signing and notarization:
+#   - Linux and Windows artifacts are uploaded unsigned. No code-signing
+#     identity exists in this repository, and inventing one would be a
+#     fabricated secret, so signing is deliberately not configured.
+#   - The macOS leg produces a binary with no code-signing identity and no
+#     notarization configured, so it can be signed and notarized later.
+#     Notarization requires an Apple Developer account and is NOT MEASURED
+#     here.
+#
+# Runner labels:
+#   - ubuntu-24.04-arm is GitHub's public ARM-hosted-runner preview label.
+#     It is UNVERIFIED for this project: no GitHub repository exists yet, so
+#     this workflow has never run. Re-verify the label (and setup-python's
+#     ARM support) before relying on the linux arm64 leg on GitHub.
+#   - macos-14 is the arm64 macOS runner.
+name: Release builds
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: build ${{ matrix.released }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            built: steward
+            released: steward-linux-amd64
+          - os: ubuntu-24.04-arm
+            built: steward
+            released: steward-linux-arm64
+          - os: windows-latest
+            built: steward.exe
+            released: steward-windows-x64.exe
+          - os: macos-14
+            built: steward
+            released: steward-darwin-arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --quiet pyinstaller cryptography pytest
+
+      - name: Run the test suite
+        run: python -m pytest tests -q
+
+      - name: Build the one-file binary
+        run: |
+          rm -rf dist build
+          pyinstaller --noconfirm --clean --distpath dist --workpath build \
+            packaging/pyinstaller.spec
+
+      - name: Smoke test the binary
+        run: ./dist/${{ matrix.built }} version
+
+      - name: Stage the release asset and checksum
+        run: |
+          if [ "${{ matrix.built }}" != "${{ matrix.released }}" ]; then
+            cp "dist/${{ matrix.built }}" "dist/${{ matrix.released }}"
+          fi
+          python - "${{ matrix.released }}" <<'PYEOF'
+          import hashlib, pathlib, sys
+          asset = pathlib.Path("dist") / sys.argv[1]
+          digest = hashlib.sha256(asset.read_bytes()).hexdigest()
+          pathlib.Path("dist", asset.name + ".sha256").write_text(
+              f"{digest}  {asset.name}\n", encoding="ascii"
+          )
+          print(f"{digest}  {asset.name}")
+          PYEOF
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.released }}
+          path: |
+            dist/${{ matrix.released }}
+            dist/${{ matrix.released }}.sha256
+          if-no-files-found: error
+
+  publish:
+    name: Attach assets to the GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all leg artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: steward-*
+          merge-multiple: true
+          path: release
+
+      # gh release create fails loudly if a release already exists for this
+      # tag, which acts as a guard against silently republishing an old tag.
+      - name: Create the release with every asset
+        run: gh release create "${{ github.ref_name }}" release/*
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -1,7 +1,7 @@
-# Homebrew packaging (dry run)
+# Homebrew packaging (template only)
 
-`steward.rb` is a Homebrew cask that installs the single-file macOS binary as
-`steward`.
+`steward.rb` is a Homebrew cask template that would install the single-file
+macOS binary as `steward`.
 
 ## Who owns updates
 
@@ -15,20 +15,23 @@ hiding the cask from `brew outdated`. Manual installs and source checkouts
 self-update through Steward's own updater. The rule lives in `steward.rb` and
 in docs/RELEASE.md.
 
-## Status
+## Status: the tap does not exist
 
-NOT MEASURED. There is no macOS build on this project yet, so the cask is a
-validated template: the `sha256` is a placeholder and the download host is the
-LAN gitea instance. To publish to a Homebrew tap a maintainer must:
+There is no Homebrew tap for Steward, so `brew install steward` fails today.
+The cask is a template only. Creating or adopting a tap and adding this cask
+to it is a maintainer step outside this repository and is NOT MEASURED.
 
-1. build the macOS binary on an arm64 (and optionally an x64) Mac,
-2. sign and notarize it with an Apple developer account.
-   Notarization is NOT MEASURED and is the standard gate for casks, because
-   macOS refuses unsigned installs,
-3. host the artifact over public HTTPS,
-4. fill in the real `sha256` and `url`,
-5. open a PR to the target tap.
+To publish, a maintainer must:
 
-Publishing is a manual maintainer step outside this repository and is
-NOT MEASURED. Ruby syntax/audit validation is documented as NOT MEASURED in
-the main packaging README because no Ruby toolchain is installed on U1.
+1. build the macOS binary on the macos-14 leg of `.github/workflows/build.yml`
+   (or on a real Apple Silicon Mac),
+2. sign and notarize it with an Apple Developer account. Notarization is
+   NOT MEASURED and is the standard gate for casks, because macOS refuses
+   unsigned installs,
+3. host the notarized binary over public HTTPS,
+4. fill in `version`, `sha256` and `url` in the cask,
+5. create or adopt a tap and add the cask to it.
+
+Ruby syntax and `brew audit` validation are NOT MEASURED: no Ruby or
+Homebrew toolchain is installed on the build host (U1), and no tap exists to
+audit against.
