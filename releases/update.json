@@ -1,0 +1,151 @@
+{
+  "alg": "ed25519",
+  "payload": {
+    "app": {
+      "min_source_version": "0.0.0",
+      "notes_url": "https://github.com/dmltallen/steward/releases/tag/v1.2.0",
+      "payloads": {
+        "linux-aarch64": {
+          "sha256": "321832de59252dcf460ddf5dbeb2032b93fc23149e98c0f8e696739c1468a54b",
+          "size": 15435752,
+          "url": "https://github.com/dmltallen/steward/releases/download/v1.2.0/steward-linux-arm64"
+        }
+      },
+      "released": "2026-11-19",
+      "version": "1.2.0"
+    },
+    "app_version": "1.2.0",
+    "models": [
+      {
+        "active_b": 7.6,
+        "family": "Gemma 4",
+        "id": "gemma4:7b",
+        "kind": "dense",
+        "license": "Apache-2.0",
+        "note": "small always-hot assistant",
+        "params_b": 7.6,
+        "q4_gb": 4.7,
+        "tok_range": [
+          15.0,
+          90.0
+        ]
+      },
+      {
+        "active_b": 8.0,
+        "family": "Qwen 3",
+        "id": "qwen3:8b",
+        "kind": "dense",
+        "license": "Apache-2.0",
+        "note": "small always-hot assistant, better tool use than 7B",
+        "params_b": 8.0,
+        "q4_gb": 5.2,
+        "tok_range": [
+          25.0,
+          100.0
+        ]
+      },
+      {
+        "active_b": 14.0,
+        "family": "Qwen 3",
+        "id": "qwen3:14b",
+        "kind": "dense",
+        "license": "Apache-2.0",
+        "note": "mainstream 16 GB class",
+        "params_b": 14.0,
+        "q4_gb": 9.0,
+        "tok_range": [
+          15.0,
+          110.0
+        ]
+      },
+      {
+        "active_b": 26.8,
+        "family": "Gemma 4",
+        "id": "gemma4:27b",
+        "kind": "dense",
+        "license": "Apache-2.0",
+        "note": "Ghost-Core 24 GB class",
+        "params_b": 26.8,
+        "q4_gb": 16.0,
+        "tok_range": [
+          13.0,
+          50.0
+        ]
+      },
+      {
+        "active_b": 27.0,
+        "family": "Qwen 3",
+        "id": "qwen3:27b",
+        "kind": "dense",
+        "license": "Apache-2.0",
+        "note": "Ghost-Core 24 GB class, stronger coding/agent",
+        "params_b": 27.0,
+        "q4_gb": 17.0,
+        "tok_range": [
+          13.0,
+          45.0
+        ]
+      },
+      {
+        "active_b": 32.0,
+        "family": "Qwen 3",
+        "id": "qwen3:32b",
+        "kind": "dense",
+        "license": "Apache-2.0",
+        "note": "32 GB class (RTX 5090 single card)",
+        "params_b": 32.0,
+        "q4_gb": 20.0,
+        "tok_range": [
+          10.0,
+          45.0
+        ]
+      },
+      {
+        "active_b": 70.0,
+        "family": "Llama 3.3",
+        "id": "llama3.3:70b",
+        "kind": "dense",
+        "license": "Llama Community",
+        "note": "48-64 GB class, only where it fits with headroom",
+        "params_b": 70.0,
+        "q4_gb": 40.0,
+        "tok_range": [
+          8.0,
+          38.0
+        ]
+      },
+      {
+        "active_b": 3.0,
+        "family": "Qwen 3 Next",
+        "id": "qwen3-next:80b",
+        "kind": "moe",
+        "license": "Apache-2.0",
+        "note": "80B MoE A3B: cheap per token, big residency; 96-128 GB class",
+        "params_b": 80.0,
+        "q4_gb": 50.0,
+        "tok_range": [
+          20.0,
+          45.0
+        ]
+      },
+      {
+        "active_b": 17.0,
+        "family": "Llama 4 Scout",
+        "id": "llama4:scout",
+        "kind": "moe",
+        "license": "Llama Community",
+        "note": "109B A17B MoE, extreme pool class; Q4 size estimate [uncertain]",
+        "params_b": 109.0,
+        "q4_gb": 65.0,
+        "tok_range": [
+          10.0,
+          30.0
+        ]
+      }
+    ],
+    "note": "signed catalog + app manifest published by the release flow",
+    "released": "2026-11-19",
+    "version": "2026-11-19.1"
+  },
+  "sig": "da818fb9eb22ebec407d54ac6505e14efaf743586ce93b12348d528c3459f7083add246a3365f49ff566548e2a80096fe230128dbeac9e6ad2a25839111c5904"
+}

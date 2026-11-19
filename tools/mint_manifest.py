@@ -71,8 +71,12 @@ def _payloads(args) -> dict:
         blob = Path(path).read_bytes()
         digest = hashlib.sha256(blob).hexdigest()
         name = Path(path).name
+        url = name
+        base = getattr(args, "payload_base", "") or ""
+        if base:
+            url = base.rstrip("/") + "/" + name
         out[platform] = {
-            "url": name,
+            "url": url,
             "sha256": digest,
             "size": len(blob),
         }
@@ -91,6 +95,10 @@ def main(argv=None) -> int:
     parser.add_argument("--min-source", default="0.0.0")
     parser.add_argument("--payload", action="append", nargs=2, metavar=("PLATFORM", "PATH"),
                         default=[], help="repeatable: app payload for one platform")
+    parser.add_argument("--payload-base", default="",
+                        help="prefix every payload url with this base (an absolute "
+                             "release-asset URL directory). Without it the url is the "
+                             "bare filename, which resolves relative to the manifest.")
     parser.add_argument("--out", default=str(REPO_ROOT / "releases" / "update.json"))
     args = parser.parse_args(argv)
 
