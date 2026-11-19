@@ -1,7 +1,7 @@
 # Steward Pricing and Licensing
 
-**Version:** 2.0, 2026-10-11 (adds the acceptance-pricing A/B design and the
-free-to-paid funnel with event hooks)
+**Version:** 2.1, 2026-11-19 (corrects the Vellum anchor to its real monthly
+price and adds the competitor price band measured in docs/research)
 
 ## Model (Don's direction, refined)
 
@@ -39,8 +39,12 @@ multi-user. Each is additive; buyers keep everything they own.
 | 192 GB (Gorgon Halo) | $5,000-8,000 | $250-1,200 | Power $249 |
 
 At $79 a 16 GB tower owner pays about 6-8% of their hardware spend; at $149 a
-128 GB owner pays about 3-6%. Competitive anchors: Vellum runs to $200/yr,
-Perplexity Computer and Claude/ChatGPT Pro charge $200/month. A one-time $149
+128 GB owner pays about 3-6%. Competitive anchors: Vellum runs to $200/month
+(30, 100 and 200 dollar tiers plus a free self-hosted open-source route),
+Perplexity Computer and Claude/ChatGPT Pro also charge $200/month, and the
+one-time desktop band runs from $29 to $349 (WinRAR $29, Alfred 34 pounds,
+Things $49.99, Fork $60, Affinity ~$170, DaVinci Resolve Studio $295, MultipleChat
+$250, Msty Aurum Lifetime $349). A one-time $149
 that outlives two months of a Pro subscription and needs no new hardware is an
 easy yes for someone already in at $3,000+.
 
