@@ -22,14 +22,12 @@ the whole point of the card.
 from __future__ import annotations
 
 import hashlib
-import json
-import os
-import stat
-import subprocess
-import sys
-import threading
 import http.client
 import http.server
+import json
+import os
+import sys
+import threading
 from pathlib import Path
 
 import pytest
