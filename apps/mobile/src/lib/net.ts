@@ -22,6 +22,7 @@ import type {
   ConversationSummary,
   HealthInfo,
   LicenseReport,
+  ToolStreamEvent,
   UpdateCheckReport,
 } from './types';
 
@@ -126,6 +127,8 @@ export type StreamChatParams = {
   onDelta: (delta: string) => void;
   onDone?: () => void;
   onError?: (message: string) => void;
+  /** Tool frames (tool_call, approval_required, tool_result) as they land. */
+  onEvent?: (event: ToolStreamEvent) => void;
 };
 
 /**
@@ -173,6 +176,9 @@ export async function streamChatAuthed(p: StreamChatParams): Promise<string> {
         },
         onDone: p.onDone,
         onError: p.onError,
+        onEvent: (evt) => {
+          p.onEvent?.(evt);
+        },
       },
       p.signal,
     );
@@ -180,6 +186,28 @@ export async function streamChatAuthed(p: StreamChatParams): Promise<string> {
     throw toNetworkError('chat', err);
   }
   return parts.join('');
+}
+
+/**
+ * POST /v1/approvals/{id} with a decision. The stream id from an
+ * approval_required frame is the approval id on the daemon, so this is how
+ * the phone approves or denies a tool step. Resolves on a 200; throws
+ * StewardError (404 unknown, 409 already decided, 401 bad token).
+ */
+export async function decideApprovalAuthed(
+  baseUrl: string,
+  token: string,
+  id: string | number,
+  decision: 'approve' | 'deny',
+  timeoutMs = 8000,
+): Promise<unknown> {
+  const res = await fetchT(baseUrl, `/v1/approvals/${encodeURIComponent(String(id))}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+    body: JSON.stringify({ decision }),
+    timeoutMs,
+  });
+  return jsonOrThrow(res, 'approval decision');
 }
 
 export async function listConversationsAuthed(

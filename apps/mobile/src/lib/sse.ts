@@ -12,15 +12,21 @@
  *
  *   data: {"delta": "from "}
  *   ...
+ *   data: {"event":"tool_call","id":"...","tool":"...","args":{...},"risk":"..."}
+ *   data: {"event":"approval_required","id":"...","tool":"...","args":{...},"risk":"...","expires_at":"..."}
+ *   data: {"event":"tool_result","id":"...","ok":true,"summary":"...","ms":123}
  *   data: [DONE]
  *
  * Pure module: no React Native or Expo imports (Node-testable).
  */
 
+import type { ToolStreamEvent } from './types';
+
 export type SseMessage =
   | { kind: 'delta'; delta: string }
   | { kind: 'done' }
   | { kind: 'error'; message: string }
+  | { kind: 'tool'; event: ToolStreamEvent }
   | { kind: 'unknown'; raw: string };
 
 /** Parse one SSE event (all raw lines between blank separators) into a
@@ -42,12 +48,16 @@ export function parseSseEvent(raw: string): SseMessage {
     return { kind: 'done' };
   }
   try {
-    const parsed = JSON.parse(payload) as { delta?: unknown; error?: unknown };
+    const parsed = JSON.parse(payload) as Record<string, unknown>;
     if (typeof parsed.delta === 'string') {
       return { kind: 'delta', delta: parsed.delta };
     }
     if (typeof parsed.error === 'string') {
       return { kind: 'error', message: parsed.error };
+    }
+    const tool = parseToolEvent(parsed);
+    if (tool) {
+      return { kind: 'tool', event: tool };
     }
     return { kind: 'unknown', raw: payload };
   } catch {
@@ -55,10 +65,56 @@ export function parseSseEvent(raw: string): SseMessage {
   }
 }
 
+function asString(v: unknown): string {
+  return typeof v === 'string' ? v : '';
+}
+
+function asRecord(v: unknown): Record<string, unknown> {
+  return v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : {};
+}
+
+/** Map a JSON frame carrying an event name onto the tool stream event. */
+function parseToolEvent(parsed: Record<string, unknown>): ToolStreamEvent | null {
+  const event = asString(parsed.event);
+  const id = asString(parsed.id);
+  if (event === 'tool_call') {
+    return {
+      type: 'tool_call',
+      id,
+      tool: asString(parsed.tool),
+      args: asRecord(parsed.args),
+      risk: asString(parsed.risk),
+    };
+  }
+  if (event === 'approval_required') {
+    return {
+      type: 'approval_required',
+      id,
+      tool: asString(parsed.tool),
+      args: asRecord(parsed.args),
+      risk: asString(parsed.risk),
+      expires_at: asString(parsed.expires_at),
+    };
+  }
+  if (event === 'tool_result') {
+    const ms = typeof parsed.ms === 'number' ? parsed.ms : null;
+    return {
+      type: 'tool_result',
+      id,
+      ok: parsed.ok === true,
+      summary: asString(parsed.summary),
+      ms,
+    };
+  }
+  return null;
+}
+
 export type SseConsumer = {
   onDelta: (delta: string) => void;
   onDone?: () => void;
   onError?: (message: string) => void;
+  /** Fired for tool_call / approval_required / tool_result frames. */
+  onEvent?: (event: ToolStreamEvent) => void;
 };
 
 type NextChunk = () => Promise<Uint8Array | ArrayBuffer | null>;
@@ -122,6 +178,8 @@ export async function streamSse(
         return;
       } else if (msg.kind === 'error') {
         consumer.onError?.(msg.message);
+      } else if (msg.kind === 'tool') {
+        consumer.onEvent?.(msg.event);
       }
     }
   }

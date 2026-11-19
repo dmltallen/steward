@@ -229,6 +229,47 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .approval .actions .btn.approve { border-color: var(--ok); color: var(--ok); }
 .approval .actions .btn.deny { border-color: var(--danger); color: var(--danger); }
 
+/* tool activity inside a chat turn (F8) */
+.turn-tools { display: flex; flex-direction: column; gap: var(--sp-2); margin: 0 0 var(--sp-3); }
+.tool-step {
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--muted);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-3);
+}
+.tool-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.risk-chip {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 1px 7px; border-radius: var(--radius-pill);
+  background: var(--surface); border: 1px solid var(--line); color: var(--muted);
+}
+.tool-step.risk-write .risk-chip { color: var(--warn); border-color: var(--warn); }
+.tool-step.risk-exec .risk-chip, .tool-step.risk-net .risk-chip { color: var(--danger); border-color: var(--danger); }
+.tool-step.risk-read .risk-chip { color: var(--accent-strong); border-color: var(--accent); }
+.tool-name { font-weight: 650; }
+.tool-args { font-size: var(--fs-small); color: var(--ink-soft); margin-top: 2px; word-break: break-word; }
+.spinner {
+  width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid var(--accent-soft); border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite; display: inline-block; margin-left: auto;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.tool-actions { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2); flex-wrap: wrap; }
+.tool-expires { font-size: var(--fs-small); color: var(--muted); flex: 1; }
+.tool-actions .btn.approve { border-color: var(--ok); color: var(--ok); }
+.tool-actions .btn.approve:hover { background: var(--ok); color: #fff; }
+.tool-actions .btn.deny { border-color: var(--danger); color: var(--danger); }
+.tool-actions .btn.deny:hover { background: var(--danger); color: #fff; }
+.tool-step.ok { border-left-color: var(--ok); }
+.tool-step.failed { border-left-color: var(--danger); }
+.tool-step.expired { opacity: 0.65; }
+.tool-outcome { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2); flex-wrap: wrap; font-size: var(--fs-small); }
+.tool-step.ok .tool-icon { color: var(--ok); font-weight: 800; }
+.tool-step.failed .tool-icon { color: var(--danger); font-weight: 800; }
+.tool-summary { color: var(--ink-soft); }
+.tool-ms { color: var(--muted); }
+
 /* markdown-lite */
 .mdc p { margin: 0 0 var(--sp-2); }
 .mdc p:last-child { margin-bottom: 0; }

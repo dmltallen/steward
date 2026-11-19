@@ -18,6 +18,9 @@ export type FakeDaemonInit = {
   pairCode?: string; // expected pairing code
   token?: string; // the single accepted session token
   deltas?: string[]; // SSE delta pieces for /v1/chat
+  /** Tool frames (tool_call / approval_required / tool_result) sent after the
+   * deltas and before [DONE], each serialized as `data: {...}`. */
+  toolFrames?: Record<string, unknown>[];
   streamDelayMs?: number; // delay between deltas (and after [DONE])
   conversations?: Record<string, unknown>[]; // GET /v1/conversations body
   keepStreamOpenMs?: number; // hold the stream open after [DONE] if set
@@ -31,6 +34,7 @@ type EffectiveInit = {
   pairCode: string;
   token: string;
   deltas: string[];
+  toolFrames: Record<string, unknown>[];
   streamDelayMs: number;
   conversations: Record<string, unknown>[];
   keepStreamOpenMs: number | null;
@@ -50,6 +54,8 @@ export class FakeDaemon {
   chatCalls = 0;
   failPairCalls = 0;
   updateCheckCalls = 0;
+  /** Decisions recorded against POST /v1/approvals/{id}, in call order. */
+  approvalDecisions: { id: string; decision: string }[] = [];
   private init: EffectiveInit;
 
   private constructor(server: Server, init: EffectiveInit) {
@@ -69,6 +75,7 @@ export class FakeDaemon {
       pairCode: PAIR_CODE,
       token: TOKEN,
       deltas: DELTAS,
+      toolFrames: [],
       streamDelayMs: 10,
       conversations: [],
       keepStreamOpenMs: null,
@@ -78,6 +85,7 @@ export class FakeDaemon {
     const effective: EffectiveInit = {
       ...defaults,
       ...init,
+      toolFrames: init.toolFrames ?? [],
       conversations: init.conversations ?? [],
       updateCheck: init.updateCheck ?? null,
       trackUpdateChecks: init.trackUpdateChecks ?? false,
@@ -183,6 +191,11 @@ export class FakeDaemon {
         res.write(`data: ${JSON.stringify({ delta: d })}\n\n`);
         await Promise.race([this.sleep(this.init.streamDelayMs), closed]);
       }
+      for (const frame of this.init.toolFrames) {
+        if (stopped) return;
+        res.write(`data: ${JSON.stringify(frame)}\n\n`);
+        await Promise.race([this.sleep(this.init.streamDelayMs), closed]);
+      }
       if (!stopped) {
         res.write('data: [DONE]\n\n');
         if (this.init.keepStreamOpenMs) await this.sleep(this.init.keepStreamOpenMs);
@@ -253,6 +266,35 @@ export class FakeDaemon {
         return;
       }
       this.json(res, 200, this.init.updateCheck);
+      return;
+    }
+
+    const approvalMatch = /^\/v1\/approvals\/([^/]+)$/.exec(path);
+    if (approvalMatch && method === 'POST') {
+      if (!authed) {
+        this.unauthorized(res);
+        return;
+      }
+      let body = {};
+      for await (const chunk of req) body = { ...body, ...safeJson(chunk) };
+      const decision = (body as { decision?: string }).decision ?? 'approve';
+      this.approvalDecisions.push({ id: approvalMatch[1], decision });
+      this.json(res, 200, {
+        ok: true,
+        approval: {
+          id: approvalMatch[1],
+          status: decision === 'approve' ? 'approved' : 'denied',
+        },
+      });
+      return;
+    }
+
+    if (path === '/v1/approvals' && method === 'GET') {
+      if (!authed) {
+        this.unauthorized(res);
+        return;
+      }
+      this.json(res, 200, { approvals: [], pending: 0 });
       return;
     }
 
