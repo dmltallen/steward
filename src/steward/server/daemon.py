@@ -86,6 +86,7 @@ from steward.server.auth import (
 from steward.server.mdns import Advertiser, instance_name, lan_ip
 from steward.memory.store import MemoryStore
 from steward.tools.approvals import ApprovalManager, approvals_router
+from steward.tools.loop import run_loop, tool_system_prompt
 from steward.webapp import serve as webapp_serve
 
 DEFAULT_HOST = "0.0.0.0"  # LAN-visible by default; auth gates every route
@@ -190,7 +191,8 @@ class DaemonContext:
     """Everything a request handler needs, shared across handler threads."""
 
     def __init__(self, *, runtime, model: str, source_dir: str,
-                 db_path: Path, secret: bytes, version: str) -> None:
+                 db_path: Path, secret: bytes, version: str,
+                 tool_overrides: dict | None = None) -> None:
         self.runtime = runtime
         self.model = model
         self.source_dir = source_dir
@@ -209,6 +211,23 @@ class DaemonContext:
         self.memory_store = MemoryStore(data_root / "db" / "memory.db")
         self.approval_manager = ApprovalManager(data_root / "db" / "approvals.db")
         self.approvals_handle = approvals_router(self.approval_manager)
+        # F8 tools: one registry and one ToolSettings per daemon, rooted at the
+        # data root so a chat turn can list/read/write inside the sandbox.
+        # No new config keys: allow_shell rides the existing Config (passed by
+        # the serve CLI through create_server), everything else is a
+        # ToolSettings default. The empty http_allowlist below means http.fetch
+        # refuses every host until an operator configures an allowlist.
+        from steward.tools import build_registry, build_settings
+        tool_overlays = {
+            "data_dir": str(data_root),
+            "fs_roots": [data_root],
+            "approval_db": str(data_root / "db" / "approvals.db"),
+            "approval_log": str(data_root / "logs" / "approvals.log"),
+            "http_allowlist": [],
+        }
+        tool_overlays.update(dict(tool_overrides or {}))
+        self.tool_settings = build_settings(None, overrides=tool_overlays)
+        self.tool_registry = build_registry(self.tool_settings)
         # OTA update state: the source (config default or STEWARD_OTA_URL) and
         # the last check result, both read/written under one lock. The startup
         # check fills update_status at boot; every check/apply records fresh.
@@ -587,6 +606,21 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
 
+    def _run_tool_loop(self, messages: list, emit) -> str:
+        """Drive one chat turn through the agent tool loop (F8).
+
+        every /v1/chat and /chat turn runs run_loop with the tool system prompt
+        and the daemon's approval manager, so a tool-eligible reply executes
+        instead of returning raw JSON blob text. emit receives the SSE events
+        (run_loop streams model deltas and per-step tool events); the shim
+        passes emit=None and gets only final text back.
+        """
+        return run_loop(
+            self.ctx.runtime, self.ctx.tool_registry, self.ctx.tool_settings,
+            self.ctx.approval_manager, messages,
+            system_prompt=tool_system_prompt(self.ctx.tool_registry),
+            model=self.ctx.model, emit=emit)
+
     def _handle_v1_chat(self) -> None:
         data = self._read_json()
         messages = build_messages(data)
@@ -600,30 +634,29 @@ class Handler(BaseHTTPRequestHandler):
                 return
             store.add_message(self.ctx.db_path, conversation_id, "user",
                               messages[-1]["content"], self.ctx.model)
-        # SSE headers first, so the client starts receiving deltas immediately.
+        # SSE headers first, so the client starts receiving events immediately.
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("X-Accel-Buffering", "no")
         self.send_header("Connection", "close")
         self.end_headers()
-        full: list[str] = []
+        final = ""
         try:
-            for item in self.ctx.runtime.chat(messages, stream=True, model=self.ctx.model):
-                delta = item.get("delta", "")
-                if delta:
-                    full.append(delta)
-                    self._sse({"delta": delta})
+            final = self._run_tool_loop(messages, emit=self._sse)
         except Exception as exc:  # noqa: BLE001 - surface mid-stream failure
             self._sse({"error": str(exc)})
         self._sse_done()
-        if conversation_id is not None:
+        if conversation_id is not None and final:
             store.add_message(self.ctx.db_path, conversation_id, "assistant",
-                              "".join(full), self.ctx.model)
+                              final, self.ctx.model)
 
     def _handle_chat_shim(self) -> None:
         """Old /chat JSON contract, same body and reply shape as v0.1, now
-        Bearer-gated. Streams the model, returns one JSON object."""
+        Bearer-gated. Runs the same tool loop as /v1/chat but without streaming
+        events: the mutating reply is the final model text as one JSON object,
+        so the phone app never has to parse the SSE wire format.
+        """
         data = self._read_json()
         messages = build_messages(data)
         if not messages or messages[-1]["role"] != "user":
@@ -637,8 +670,7 @@ class Handler(BaseHTTPRequestHandler):
             store.add_message(self.ctx.db_path, conversation_id, "user",
                               messages[-1]["content"], self.ctx.model)
         try:
-            reply = "".join(d["delta"] for d in self.ctx.runtime.chat(
-                messages, stream=False, model=self.ctx.model))
+            reply = self._run_tool_loop(messages, emit=None)
         except Exception as exc:  # noqa: BLE001 - backend failure is a 502
             self._json(502, {"error": str(exc)})
             return
@@ -1029,12 +1061,16 @@ def create_server(addr, *, runtime, model: str = DEFAULT_MODEL,
                   advertise: bool = True,
                   instance_name_override: str | None = None,
                   host_ip: str | None = None,
+                  tool_overrides: dict | None = None,
                   version: str = VERSION) -> StewardServer:
     """Build a fully-wired StewardServer.
 
     The knobs a caller (tests, CLI, mobile dev) commonly needs are runtime,
     db_path and secret_file; everything else has a sane default. db_path
     defaults to <data>/db/steward.db under STEWARD_HOME (or ~/.steward).
+    tool_overrides lets the CLI and tests pin ToolSettings knobs (allow_shell,
+    fs_roots, http_allowlist); defaults root the sandbox at the data dir and
+    keep allow_shell false and the http allowlist empty.
     """
     from steward.paths import db_dir
 
@@ -1043,7 +1079,8 @@ def create_server(addr, *, runtime, model: str = DEFAULT_MODEL,
     key = secret if secret else load_or_create_secret(secret_file or (db_path.parent / "pairing.key"))
     ctx = DaemonContext(runtime=runtime, model=model,
                         source_dir=source_dir or DEFAULT_SOURCE,
-                        db_path=db_path, secret=key, version=version)
+                        db_path=db_path, secret=key, version=version,
+                        tool_overrides=tool_overrides)
     return StewardServer(addr, ctx, advertise=advertise,
                          instance_name_override=instance_name_override,
                          host_ip=host_ip)
@@ -1104,7 +1141,8 @@ def main(argv=None) -> int:
 
     server = create_server((args.host, args.port), runtime=runtime,
                            model=args.model, source_dir=args.source,
-                           advertise=not args.no_mdns)
+                           advertise=not args.no_mdns,
+                           tool_overrides={"allow_shell": bool(cfg.allow_shell)})
 
     # One-click update: after a successful apply the freshly installed app
     # binary replaces this process in place (`os.execv` with the same serve
