@@ -1,8 +1,19 @@
 # Release build: Linux one-file binary + .deb, uploaded as gitea release assets.
 #
 # Triggers on tag pushes (v*) and manual workflow dispatch. The only CI runner
-# is u1-runner (linux/arm64), so this file intentionally has a single Linux
-# job and never queues a windows-amd64 job.
+# on this board is u1-runner (linux/arm64), so this file intentionally has a
+# single Linux job.
+#
+# No windows, amd64, or macOS job is defined here on purpose: the gitea board
+# has no runner for those platforms, and adding such a job here would sit in
+# `ready` forever because nothing could execute it. A linux/amd64 or
+# windows-amd64 runner would have to exist on this board first; until then
+# this workflow stays linux/arm64 only.
+#
+# The native linux amd64, windows amd64 and macos arm64 legs are defined in
+# .github/workflows/build.yml for when the repository moves to GitHub. They
+# cannot run anywhere here. The honest status of every platform is in
+# docs/BUILD-MATRIX.md.
 name: Release build
 on:
   push:
