@@ -1,6 +1,6 @@
 # Steward Changelog
 
-## v1.2.0 (2026-10-28)
+## v1.2.0 (2026-10-28, released 2026-11-19)
 
 Updates now reach the person, not just the daemon: the web client and the
 phone app check on open, show a plain-language notice with the new version
