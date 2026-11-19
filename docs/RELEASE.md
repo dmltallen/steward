@@ -37,8 +37,11 @@ path, a user path). Anything not provable is `unknown`.
   exact command a person runs. It never stages or swaps the binary, and it
   performs no network work for the refused self-update.
 * The `/health` endpoint and every update check response carry the channel.
-* The web client shows a managed-by line instead of an Update button when the
-  check reports a managed channel (no dead button).
+* On a managed channel the check reports `app.available: false` even when a
+  newer version exists, so no client renders an Update button it cannot act
+  on (no dead button). The response carries `channel`, `managed_by`, and
+  `managed_update_command`, which is the contract a client's update card
+  renders as a managed-by line instead of an Update button.
 
 The same rule applies to the CLI: `steward update apply` refuses on a managed
 install before it downloads anything.
