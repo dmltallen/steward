@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -14,6 +15,7 @@ import * as Clipboard from 'expo-clipboard';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { MainTabParamList } from '../navigation/types';
 import { useTheme } from '../theme';
+import type { Palette } from '../theme';
 import { StewardText } from '../components/StewardText';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
@@ -27,11 +29,195 @@ import { useSession } from '../hooks/useSession';
 import { useUpdateNotice } from '../hooks/useUpdateNotice';
 import { UpdateNotice } from '../components/UpdateNotice';
 import { config } from '../config';
-import type { ChatMessage, Session } from '../lib/types';
+import type { ChatMessage, Session, ToolStep } from '../lib/types';
+import { approvalStatus, applyToolEvent, summarizeToolArgs } from '../lib/tools';
 
 type Props = BottomTabScreenProps<MainTabParamList, 'Chat'>;
 
 const MAX_ASSISTANT_PREVIEW = 200000;
+const MAX_TOOL_SUMMARY = 96;
+
+/** One inline tool step rendered inside an assistant bubble (F8). */
+function ToolLine({
+  step,
+  now,
+  colors,
+  onTap,
+}: {
+  step: ToolStep;
+  now: number;
+  colors: Palette;
+  onTap: () => void;
+}) {
+  const summary =
+    step.summary && step.summary.length > MAX_TOOL_SUMMARY
+      ? `${step.summary.slice(0, MAX_TOOL_SUMMARY)}...`
+      : step.summary ?? '';
+  const suffix = step.ms != null ? ` in ${step.ms} ms` : '';
+  const rowStyle = [styles.toolLine, { backgroundColor: colors.bg, borderColor: colors.border }];
+
+  if (step.state === 'running') {
+    return (
+      <View style={rowStyle}>
+        <ActivityIndicator size="small" color={colors.brand} />
+        <StewardText variant="caption" secondary numberOfLines={1} style={styles.toolLineText}>
+          {step.tool} running
+        </StewardText>
+      </View>
+    );
+  }
+
+  if (step.state === 'approval') {
+    const status = approvalStatus(step.expiresAt, now);
+    return (
+      <Pressable
+        onPress={onTap}
+        accessibilityRole="button"
+        accessibilityLabel={`${step.tool} needs approval`}
+        style={({ pressed }) => [
+          rowStyle,
+          { borderColor: colors.warning, opacity: pressed ? 0.8 : 1 },
+        ]}
+      >
+        <View style={[styles.toolStatusDot, { backgroundColor: colors.warning }]} />
+        <StewardText variant="caption" secondary numberOfLines={1} style={styles.toolLineText}>
+          {step.tool} needs approval
+        </StewardText>
+        <StewardText variant="caption" tertiary numberOfLines={1} style={styles.toolLineMeta}>
+          {status.expired ? 'expired, ask again' : status.label}
+        </StewardText>
+        <Ionicons name="chevron-forward" size={14} color={colors.textTertiary} />
+      </Pressable>
+    );
+  }
+
+  if (step.state === 'expired') {
+    return (
+      <View style={[rowStyle, { opacity: 0.6 }]}>
+        <View style={[styles.toolStatusDot, { backgroundColor: colors.textTertiary }]} />
+        <StewardText variant="caption" tertiary numberOfLines={1} style={styles.toolLineText}>
+          {step.tool} expired, ask again
+        </StewardText>
+      </View>
+    );
+  }
+
+  const done = step.state === 'done';
+  const iconColor = done ? colors.success : colors.danger;
+  return (
+    <View style={rowStyle}>
+      <Ionicons name={done ? 'checkmark-circle' : 'close-circle'} size={16} color={iconColor} />
+      <StewardText
+        variant="caption"
+        secondary
+        numberOfLines={1}
+        style={styles.toolLineText}
+      >
+        {summary}
+        {suffix}
+      </StewardText>
+    </View>
+  );
+}
+
+/** Bottom-sheet approval prompt with Approve / Deny and an expiry countdown. */
+function ApprovalSheet({
+  approval,
+  now,
+  colors,
+  onApprove,
+  onDeny,
+  onDismiss,
+}: {
+  approval: {
+    id: string;
+    tool: string;
+    args: Record<string, unknown>;
+    risk: string;
+    expiresAt: string;
+    deciding: boolean;
+    error: string | null;
+  };
+  now: number;
+  colors: Palette;
+  onApprove: () => void;
+  onDeny: () => void;
+  onDismiss: () => void;
+}) {
+  const status = approvalStatus(approval.expiresAt, now);
+  const risk = approval.risk || 'write';
+  const riskColor = risk === 'read' ? colors.brand : risk === 'write' ? colors.warning : colors.danger;
+  const locked = status.expired || approval.deciding;
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onDismiss}>
+      <Pressable
+        style={[styles.sheetBackdrop, { backgroundColor: colors.scrim }]}
+        onPress={onDismiss}
+        accessibilityLabel="Dismiss approval"
+      />
+      <View style={[styles.sheet, { backgroundColor: colors.surfaceElevated }]}>
+        <View style={styles.sheetHeader}>
+          <View style={[styles.riskPill, { borderColor: riskColor }]}>
+            <StewardText variant="caption" style={{ color: riskColor, fontWeight: '700' }}>
+              {risk.toUpperCase()}
+            </StewardText>
+          </View>
+          <StewardText variant="headline" numberOfLines={1} style={styles.sheetTitle}>
+            {approval.tool}
+          </StewardText>
+        </View>
+        <StewardText variant="body" secondary style={styles.sheetArgs}>
+          {summarizeToolArgs(approval.tool, approval.args)}
+        </StewardText>
+        <StewardText variant="caption" tertiary style={styles.sheetStatus}>
+          {status.expired ? 'expired, ask again' : status.label}
+        </StewardText>
+        {approval.error ? (
+          <StewardText variant="caption" style={{ color: colors.danger, marginTop: 6 }}>
+            {approval.error}
+          </StewardText>
+        ) : null}
+        <View style={styles.sheetActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Approve tool call"
+            disabled={locked}
+            onPress={onApprove}
+            style={({ pressed }) => [
+              styles.sheetButton,
+              { backgroundColor: colors.success, opacity: locked ? 0.5 : pressed ? 0.85 : 1 },
+            ]}
+          >
+            <Ionicons name="checkmark-circle-outline" size={20} color={colors.onBrand} />
+            <StewardText variant="label" color={colors.onBrand}>
+              {approval.deciding ? 'Approving...' : 'Approve'}
+            </StewardText>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Deny tool call"
+            disabled={locked}
+            onPress={onDeny}
+            style={({ pressed }) => [
+              styles.sheetButton,
+              {
+                backgroundColor: colors.surfaceElevated,
+                borderWidth: 1,
+                borderColor: colors.danger,
+                opacity: locked ? 0.5 : pressed ? 0.85 : 1,
+              },
+            ]}
+          >
+            <Ionicons name="close-circle-outline" size={20} color={colors.danger} />
+            <StewardText variant="label" style={{ color: colors.danger }}>
+              {approval.deciding ? 'Denying...' : 'Deny'}
+            </StewardText>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
 export function ChatScreen({ navigation, route }: Props) {
   const t = useTheme();
@@ -62,6 +248,19 @@ export function ChatScreen({ navigation, route }: Props) {
     detail: string;
     link: string | null;
   } | null>(null);
+
+  // Active approval shown in the bottom sheet. The stream id is the id the
+  // daemon accepts on POST /v1/approvals/{id}.
+  const [pendingApproval, setPendingApproval] = useState<{
+    id: string;
+    tool: string;
+    args: Record<string, unknown>;
+    risk: string;
+    expiresAt: string;
+    deciding: boolean;
+    error: string | null;
+  } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   const updateNotice = useUpdateNotice({
     storage: rnStorage,
@@ -205,13 +404,18 @@ export function ChatScreen({ navigation, route }: Props) {
       const now = Date.now();
       const userMsg: ChatMessage = { id: `msg-${now}-u`, role: 'user', text };
       const assistantId = `msg-${now}-a`;
-      setMessages([...pre, userMsg, { id: assistantId, role: 'assistant', text: '' }]);
+      setMessages([...pre, userMsg, { id: assistantId, role: 'assistant', text: '', tools: [] }]);
       const controller = new AbortController();
       controllerRef.current = controller;
       setStreaming(true);
       setStopped(false);
       setError(null);
       let full = '';
+      const patchAssistantTools = (apply: (steps: ToolStep[]) => ToolStep[]) => {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantId ? { ...m, tools: apply(m.tools ?? []) } : m)),
+        );
+      };
       try {
         await client.streamChat({
           history: pre.map((m) => ({ role: m.role, text: m.text })),
@@ -223,6 +427,26 @@ export function ChatScreen({ navigation, route }: Props) {
             setMessages((prev) =>
               prev.map((m) => (m.id === assistantId ? { ...m, text: full } : m)),
             );
+          },
+          onEvent: (evt) => {
+            // Tool frames update the inline lines inside this turn; they are
+            // never part of the streamed text, so the offline cache stores
+            // only the final reply.
+            patchAssistantTools((steps) => applyToolEvent(steps, evt));
+            if (evt.type === 'approval_required') {
+              setPendingApproval({
+                id: evt.id,
+                tool: evt.tool,
+                args: evt.args,
+                risk: evt.risk,
+                expiresAt: evt.expires_at,
+                deciding: false,
+                error: null,
+              });
+              setNow(Date.now());
+            } else if (evt.type === 'tool_result') {
+              setPendingApproval((cur) => (cur && cur.id === evt.id ? null : cur));
+            }
           },
         });
       } catch (err) {
@@ -346,6 +570,57 @@ export function ChatScreen({ navigation, route }: Props) {
       setInstallingUpdate(false);
     }
   }, [client, updateNotice.state.plan, installingUpdate]);
+
+  // Tick the approval countdown once a second while the sheet is open.
+  useEffect(() => {
+    if (!pendingApproval?.expiresAt) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingApproval]);
+
+  const decideApproval = useCallback(
+    async (decision: 'approve' | 'deny') => {
+      if (!client || !pendingApproval || pendingApproval.deciding) return;
+      const target = pendingApproval;
+      setPendingApproval((cur) => (cur ? { ...cur, deciding: true, error: null } : cur));
+      try {
+        await client.decideApproval(target.id, decision);
+        haptic.light();
+        // The daemon resumes the turn and streams tool_result, which settles
+        // the inline line; close the sheet either way.
+        setPendingApproval((cur) => (cur?.id === target.id ? null : cur));
+        setNow(Date.now());
+      } catch (err) {
+        const msg =
+          err instanceof StewardError && err.status === 401
+            ? 'Daemon rejected the session token. Re-pair in Settings.'
+            : err instanceof Error
+              ? err.message
+              : String(err);
+        setPendingApproval((cur) => (cur?.id === target.id ? { ...cur, deciding: false, error: msg } : cur));
+      }
+    },
+    [client, pendingApproval],
+  );
+
+  const reopenApproval = useCallback((step: ToolStep) => {
+    if (!step.expiresAt) return;
+    setPendingApproval({
+      id: step.id,
+      tool: step.tool,
+      args: step.args,
+      risk: step.risk,
+      expiresAt: step.expiresAt,
+      deciding: false,
+      error: null,
+    });
+    setNow(Date.now());
+  }, []);
+
+  const dismissApproval = useCallback(() => {
+    setPendingApproval((cur) => (cur && !cur.deciding ? null : cur));
+  }, []);
 
   if (!session) {
     return (
@@ -487,6 +762,19 @@ export function ChatScreen({ navigation, route }: Props) {
                     >
                       {item.text}
                     </StewardText>
+                    {!isUser && item.tools && item.tools.length > 0 ? (
+                      <View style={styles.turnTools}>
+                        {item.tools.map((step) => (
+                          <ToolLine
+                            key={step.id}
+                            step={step}
+                            now={now}
+                            colors={c}
+                            onTap={() => reopenApproval(step)}
+                          />
+                        ))}
+                      </View>
+                    ) : null}
                     {streaming && item.id === lastAssistantId ? (
                       <View style={styles.typingWrap}>
                         <ActivityIndicator size="small" color={c.onBrand} />
@@ -565,6 +853,17 @@ export function ChatScreen({ navigation, route }: Props) {
           )}
         </Card>
       </KeyboardAvoidingView>
+
+      {pendingApproval ? (
+        <ApprovalSheet
+          approval={pendingApproval}
+          now={now}
+          colors={c}
+          onApprove={() => void decideApproval('approve')}
+          onDeny={() => void decideApproval('deny')}
+          onDismiss={dismissApproval}
+        />
+      ) : null}
     </View>
   );
 }
@@ -620,6 +919,51 @@ const styles = StyleSheet.create({
   bubbleActions: { flexDirection: 'row', gap: 10, paddingHorizontal: 4, paddingTop: 4 },
   actionBtn: { padding: 2 },
   typingWrap: { flexDirection: 'row', marginTop: 6 },
+  turnTools: { marginTop: 8, gap: 6 },
+  toolLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  toolLineText: { flex: 1 },
+  toolLineMeta: { flexShrink: 1 },
+  toolStatusDot: { width: 8, height: 8, borderRadius: 4 },
+  sheetBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    paddingBottom: 34,
+    gap: 8,
+  },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  riskPill: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+  },
+  sheetTitle: { flex: 1 },
+  sheetArgs: { marginTop: 2 },
+  sheetStatus: { marginTop: 2 },
+  sheetActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  sheetButton: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',

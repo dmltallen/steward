@@ -12,6 +12,7 @@ import type { StorageLike } from './cache';
 import {
   checkUpdateAuthed,
   createConversationAuthed,
+  decideApprovalAuthed,
   deleteConversationAuthed,
   fetchHealth,
   getConversationAuthed,
@@ -30,6 +31,7 @@ import type {
   HealthInfo,
   LicenseReport,
   Session,
+  ToolStreamEvent,
   UpdateCheckReport,
 } from './types';
 
@@ -166,6 +168,7 @@ export class StewardClient {
    * Stream one assistant reply through the daemon. Deltas flow to onDelta as
    * they arrive. Resolves with the full reply text. Abort via signal to stop
    * generation; an aborted stream resolves with what had streamed so far.
+   * Tool frames flow to onEvent; they never contaminate the resolved text.
    */
   streamChat(opts: {
     history: ChatWireMessage[];
@@ -175,12 +178,21 @@ export class StewardClient {
     onDelta: (delta: string) => void;
     onDone?: () => void;
     onError?: (message: string) => void;
+    onEvent?: (event: ToolStreamEvent) => void;
   }): Promise<string> {
     return streamChatAuthed({
       baseUrl: this.baseUrl,
       token: this.token,
       ...opts,
     });
+  }
+
+  /**
+   * Approve or deny one pending tool approval. The id is the stream id from
+   * the approval_required frame the client rendered.
+   */
+  decideApproval(id: string | number, decision: 'approve' | 'deny'): Promise<unknown> {
+    return decideApprovalAuthed(this.baseUrl, this.token, id, decision);
   }
 
   /** License report from GET /v1/license (free vs perpetual). */

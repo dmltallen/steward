@@ -16,7 +16,60 @@ export type ChatMessage = {
   id: string;
   role: ChatRole;
   text: string;
+  /** Tool steps streamed during this assistant turn, in arrival order. */
+  tools?: ToolStep[];
 };
+
+/** Tool risk classes the daemon assigns (contract: read|write|exec|net). */
+export type ToolRisk = 'read' | 'write' | 'exec' | 'net';
+
+/**
+ * A single tool step inside one assistant turn, as the screen renders it.
+ * Starts as a running call; approval_required moves it to approval/expired;
+ * tool_result settles it as done or failed.
+ */
+export type ToolStep = {
+  id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  risk: ToolRisk | string;
+  state: 'running' | 'approval' | 'expired' | 'done' | 'failed';
+  /** ISO deadline from approval_required; drives the countdown. */
+  expiresAt?: string;
+  /** Plain-language result line from tool_result (never raw JSON). */
+  summary?: string;
+  ms?: number | null;
+};
+
+/**
+ * One tool frame on the SSE wire, mirroring the frozen contract used by
+ * src/steward/server/daemon.py (F8): tool_call, approval_required,
+ * tool_result. The stream id ties the three frames of one step together and
+ * is the value passed to POST /v1/approvals/{id}.
+ */
+export type ToolStreamEvent =
+  | {
+      type: 'tool_call';
+      id: string;
+      tool: string;
+      args: Record<string, unknown>;
+      risk: string;
+    }
+  | {
+      type: 'approval_required';
+      id: string;
+      tool: string;
+      args: Record<string, unknown>;
+      risk: string;
+      expires_at: string;
+    }
+  | {
+      type: 'tool_result';
+      id: string;
+      ok: boolean;
+      summary: string;
+      ms: number | null;
+    };
 
 /** A raw message row as stored by the daemon (GET /v1/conversations/{id}). */
 export type ConversationMessage = {

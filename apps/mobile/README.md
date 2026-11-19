@@ -27,6 +27,15 @@ The product is a perpetual license: no subscription in any copy or flow.
   `body.getReader()` (Expo SDK 57's global fetch streams natively). Stop
   generation aborts the stream and keeps the partial reply; copy and retry
   are one tap each.
+- **Tools and one-tap approvals.** Tool steps stream inside the same turn as
+  compact inline lines: the tool name, a risk badge, a one-line argument
+  summary, a spinner while it runs, and a plain ok or failed line when it
+  settles. A call that needs approval opens a bottom sheet with the tool,
+  risk, argument summary and a live countdown, and one-tap Approve / Deny
+  that posts the decision to `POST /v1/approvals/{id}`. A prompt that lapses
+  shows "expired, ask again" and cannot be approved. Tool frames are never
+  part of the streamed text, so a turn with tools still caches its final
+  reply for offline reading with nothing extra on disk.
 - **Conversations.** A list backed by `/v1/conversations` with an AsyncStorage
   cache, so the last 20 messages of each conversation render with no network
   and the last conversation restores fully offline.
@@ -126,6 +135,10 @@ and a 404 license route):
   delta; license route reports not-served.
 - `sse.test.ts`: incremental delta delivery, [DONE] termination, stop
   generation keeps the partial reply, frame parsing.
+- `tools.test.ts`: tool frames stream out of /v1/chat and are never folded
+  into the reply text or the offline cache, Approve / Deny posts the decision
+  to the approvals API, and the step fold settles every tool as done or
+  failed. Each test fails if the approval handling is removed.
 - `offline-cache.test.ts`: the last 20 messages are cached and the last
   conversation restores with zero network (the daemon's port is closed when
   the offline client runs); delete clears the cached copy.

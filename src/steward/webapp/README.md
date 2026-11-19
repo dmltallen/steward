@@ -19,8 +19,12 @@ Files:
 ## Screens
 
 - Chat: streamed replies render token by token (SSE), markdown-lite with
-  strong escaping, conversation list, and live approval prompts with Approve
-  and Deny buttons.
+  strong escaping, conversation list, and tool steps inline in the turn:
+  each tool shows its name, risk and a one-line argument summary, a spinner
+  while running, Approve / Deny with a live countdown when a risky call
+  needs a human decision, and a plain ok or failed line on the result. The
+  approval panel below the chat still shows any pending approvals that were
+  not prompted inline (for example after a reload).
 - Files: index status (documents, chunks, on-disk size), add and remove
   folders, build index, and search results with citations (source path, char
   offset, score).

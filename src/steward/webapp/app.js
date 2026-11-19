@@ -692,7 +692,11 @@
     conversationId: null,
     messages: [],
     busy: false,
-    approvals: []
+    approvals: [],
+    // Tool approvals currently rendered inline inside a live chat turn, by
+    // their stream id. The bottom poll box skips these so a pending approval
+    // is not prompted twice.
+    inlineApprovals: {}
   };
   var approvalTimer = null;
 
@@ -786,6 +790,8 @@
     var wrap = el('div', 'msg assistant');
     var meta = el('span', 'meta', 'Steward');
     wrap.appendChild(meta);
+    var tools = el('div', 'turn-tools');
+    wrap.appendChild(tools);
     var body = el('div', 'mdc');
     body.classList.add('streaming-body');
     body.innerHTML = '';
@@ -794,7 +800,7 @@
     body.appendChild(cursor);
     box.appendChild(wrap);
     box.scrollTop = box.scrollHeight;
-    return { wrap: wrap, body: body, cursor: cursor, text: '' };
+    return { wrap: wrap, tools: tools, body: body, cursor: cursor, text: '', toolById: {} };
   }
 
   function updateAssistantBubble(entry, delta, done) {
@@ -863,7 +869,10 @@
                 if (payload === '[DONE]') { finishSoon(); return; }
                 try {
                   var parsed = JSON.parse(payload);
-                  if (parsed.delta) { updateAssistantBubble(entry, parsed.delta, false); }
+                  if (parsed.event === 'tool_call') { onToolCall(entry, parsed); }
+                  else if (parsed.event === 'approval_required') { onApprovalRequired(entry, parsed); }
+                  else if (parsed.event === 'tool_result') { onToolResult(entry, parsed); }
+                  else if (parsed.delta) { updateAssistantBubble(entry, parsed.delta, false); }
                   if (parsed.error) { finish(); }
                 } catch (e) { /* ignore malformed event */ }
               });
@@ -931,7 +940,7 @@
     var box = document.getElementById('approvals');
     if (!box) { return; }
     var pendingRows = (rows || []).filter(function (a) {
-      return a && a.id != null && !a.decision;
+      return a && a.id != null && !a.decision && !chatState.inlineApprovals[String(a.id)];
     });
     box.textContent = '';
     if (pendingRows.length === 0) { return; }
@@ -939,7 +948,7 @@
       var card = el('div', 'approval');
       var risk = el('span', 'risk', escapeHtml((a.risk || 'write').toUpperCase()));
       var tool = el('div', 'tool', escapeHtml(a.tool || 'tool'));
-      var args = el('div', 'args', escapeHtml(JSON.stringify(a.args || {})));
+      var args = el('div', 'args', escapeHtml(summarizeArgs(a.args)));
       var actions = el('div', 'actions');
       var approve = el('button', 'btn approve', 'Approve');
       var deny = el('button', 'btn deny', 'Deny');
@@ -963,6 +972,166 @@
       .catch(function (err) {
         if (err.status !== 401) { console.error('approval decision failed', err.message); }
       });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* tool activity inside a chat turn (F8)                              */
+  /* ------------------------------------------------------------------ */
+
+  var KNOWN_RISKS = ['read', 'write', 'exec', 'net'];
+
+  function riskClass(risk) {
+    return KNOWN_RISKS.indexOf(risk) !== -1 ? String(risk) : 'other';
+  }
+
+  // One-line, human-readable view of the tool arguments. Values are shown as
+  // key=value pairs (truncated), never a raw JSON dump.
+  function summarizeArgs(args) {
+    if (!args || typeof args !== 'object') { return 'no arguments'; }
+    var keys = Object.keys(args);
+    if (keys.length === 0) { return 'no arguments'; }
+    var parts = [];
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      var v = args[k];
+      if (typeof v === 'string') {
+        if (k === 'content' && v.length > 40) { v = v.slice(0, 40) + '...'; }
+        else if (v.length > 72) { v = v.slice(0, 72) + '...'; }
+      } else if (v !== null && typeof v === 'object') {
+        try { v = JSON.stringify(v); } catch (e) { v = String(v); }
+        if (String(v).length > 48) { v = String(v).slice(0, 48) + '...'; }
+      }
+      parts.push(k + '=' + v);
+    }
+    return parts.join(' \u00b7 ');
+  }
+
+  function formatCountdown(ms) {
+    var s = Math.max(0, Math.ceil(ms / 1000));
+    var m = Math.floor(s / 60);
+    s = s % 60;
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function toolBlock(entry, data) {
+    var card = el('div', 'tool-step risk-' + riskClass(data.risk));
+    var head = el('div', 'tool-head');
+    head.appendChild(el('span', 'risk-chip', escapeHtml(String(data.risk || 'read').toUpperCase())));
+    head.appendChild(el('span', 'tool-name', escapeHtml(String(data.tool || 'tool'))));
+    var spinner = el('span', 'spinner');
+    spinner.setAttribute('aria-hidden', 'true');
+    head.appendChild(spinner);
+    card.appendChild(head);
+    card.appendChild(el('div', 'tool-args', escapeHtml(summarizeArgs(data.args))));
+    entry.tools.appendChild(card);
+    var block = { card: card, id: String(data.id), state: 'running', deadline: 0, decisions: null, timer: null };
+    entry.toolById[block.id] = block;
+    return block;
+  }
+
+  function onToolCall(entry, data) {
+    toolBlock(entry, data);
+    scrollChat();
+  }
+
+  function onApprovalRequired(entry, data) {
+    var block = entry.toolById[String(data.id)];
+    if (!block) { block = toolBlock(entry, data); }
+    block.state = 'approval';
+    block.deadline = Date.parse(data.expires_at) || 0;
+    block.card.classList.add('needs-approval');
+    if (block.decisions) { startExpiryCountdown(block); scrollChat(); return; }
+    var actions = el('div', 'tool-actions');
+    var expires = el('span', 'tool-expires', '');
+    var approve = el('button', 'btn approve', 'Approve');
+    var deny = el('button', 'btn deny', 'Deny');
+    approve.type = 'button';
+    deny.type = 'button';
+    approve.addEventListener('click', function () { decideInlineApproval(block, 'approve'); });
+    deny.addEventListener('click', function () { decideInlineApproval(block, 'deny'); });
+    actions.appendChild(expires);
+    actions.appendChild(approve);
+    actions.appendChild(deny);
+    block.decisions = { actions: actions, approve: approve, deny: deny, expires: expires };
+    block.card.appendChild(actions);
+    chatState.inlineApprovals[block.id] = true;
+    startExpiryCountdown(block);
+    scrollChat();
+  }
+
+  function startExpiryCountdown(block) {
+    if (block.timer) { clearInterval(block.timer); block.timer = null; }
+    function tick() {
+      if (!block.decisions) { return; }
+      var remain = block.deadline - Date.now();
+      if (remain <= 0) {
+        clearInterval(block.timer); block.timer = null;
+        block.state = 'expired';
+        block.card.classList.add('expired');
+        block.decisions.expires.textContent = 'expired, ask again';
+        block.decisions.approve.disabled = true;
+        block.decisions.deny.disabled = true;
+        return;
+      }
+      block.decisions.expires.textContent = 'expires in ' + formatCountdown(remain);
+    }
+    tick();
+    block.timer = setInterval(tick, 1000);
+  }
+
+  function clearExpiryCountdown(block) {
+    if (block.timer) { clearInterval(block.timer); block.timer = null; }
+  }
+
+  function decideInlineApproval(block, decision) {
+    if (!session.token || block.state !== 'approval') { return; }
+    block.state = decision === 'approve' ? 'approving' : 'denying';
+    block.decisions.approve.disabled = true;
+    block.decisions.deny.disabled = true;
+    block.decisions.expires.textContent = decision === 'approve' ? 'approving...' : 'denying...';
+    apiJson('/v1/approvals/' + encodeURIComponent(block.id), {
+      method: 'POST',
+      body: { decision: decision }
+    }).catch(function (err) {
+      if (err.status === 401) { return; }
+      // The decision did not land; let the human try again.
+      block.state = 'approval';
+      block.decisions.approve.disabled = false;
+      block.decisions.deny.disabled = false;
+      block.decisions.expires.textContent = 'decision failed, try again';
+      startExpiryCountdown(block);
+    });
+    // The daemon resumes the turn and streams tool_result, which resolves the
+    // block. Nothing more to do here on success.
+  }
+
+  function onToolResult(entry, data) {
+    var block = entry.toolById[String(data.id)];
+    if (!block) { return; }
+    clearExpiryCountdown(block);
+    block.state = data.ok ? 'done' : 'failed';
+    delete chatState.inlineApprovals[block.id];
+    block.card.classList.remove('needs-approval', 'expired');
+    block.card.classList.add(data.ok ? 'ok' : 'failed');
+    var spinner = block.card.querySelector('.spinner');
+    if (spinner && spinner.parentNode) { spinner.parentNode.removeChild(spinner); }
+    if (block.decisions) {
+      if (block.decisions.actions.parentNode) {
+        block.decisions.actions.parentNode.removeChild(block.decisions.actions);
+      }
+      block.decisions = null;
+    }
+    var outcome = el('div', 'tool-outcome', '');
+    outcome.appendChild(el('span', 'tool-icon', data.ok ? '\u2713' : '\u2717'));
+    outcome.appendChild(el('span', 'tool-summary', escapeHtml(String(data.summary || (data.ok ? 'Done' : 'Failed')))));
+    if (data.ms != null) { outcome.appendChild(el('span', 'tool-ms', escapeHtml('in ' + data.ms + ' ms'))); }
+    block.card.appendChild(outcome);
+    scrollChat();
+  }
+
+  function scrollChat() {
+    var box = document.getElementById('chat-messages');
+    if (box) { box.scrollTop = box.scrollHeight; }
   }
 
   /* ------------------------------------------------------------------ */

@@ -107,6 +107,20 @@ Screenshots of the notice, the progress bar and the post-restart reconnect
 are in `docs/images/s15-*`; `tools/e2e_update.py` proves the old-to-new
 upgrade end to end.
 
+## Tools and approvals
+
+Steward can take action in a chat turn instead of only talking: reading and
+writing files, reading your calendar, running a shell command, or fetching a
+URL. Every step renders inline in the same turn with the tool, its risk, and
+a one-line summary, a spinner while it runs, and a plain ok or failed line
+when it settles. Reading is free. Anything that writes, executes or reaches
+the network pauses the turn until you approve it: the Approve / Deny prompt
+shows the tool, the risk, and a live countdown, and a prompt that lapses just
+reads "expired, ask again". A denied or failed step is described in plain
+language, never dumped as JSON. Every approval decision is logged by the
+daemon. The web client and the phone behave the same, and there is no toggle
+to turn off.
+
 ## What it does with your data
 
 Everything is stored under one data root, `~/.steward` by default
@@ -131,6 +145,18 @@ Ollama instance.
 ![Steward chat, phone](docs/images/webapp-chat-390x844.png)
 
 ![Steward settings, phone](docs/images/webapp-settings-390x844.png)
+
+### Tools in chat
+
+![Tool step running with a spinner](docs/images/f8-tool-running.png)
+
+![Approval prompt with countdown](docs/images/f8-approval.png)
+
+![Approved tool step](docs/images/f8-approve-result.png)
+
+![Denied tool step](docs/images/f8-deny-result.png)
+
+![Expired approval](docs/images/f8-expired.png)
 
 ## Repo layout
 
