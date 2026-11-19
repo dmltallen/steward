@@ -17,6 +17,15 @@ Usage:
         Mint a license for THIS machine (computes its hardware fingerprint).
         Or pass --fingerprint sha256:<hex> to target another machine.
 
+    tools/mint_license.py mint --tier free --local \\
+            --pack browser_agent --pack-version 1 --out pack.json
+        Mint a license that carries a one-time feature pack on top of its
+        tier grant (repeatable: --pack can be passed several times, each
+        with a matching --pack-version). Pack ids must be registered in
+        src/steward/features.py; an unknown id is refused at mint time.
+        Packs are additive and perpetual unless --pack-expires sets an
+        explicit ISO date.
+
     tools/mint_license.py verify --file a.json
         Check a file's signature against the embedded vendor public key.
 
@@ -93,6 +102,37 @@ def _fingerprint(args) -> str:
     sys.exit("one of --fingerprint or --local is required")
 
 
+def _packs_from_args(args) -> list[dict]:
+    """Build the signed packs list from the --pack / --pack-version flags.
+
+    Every pack id must be registered in steward.features (is_pack True), so
+    a vendor cannot mint a pack this build cannot honor. Fail closed at the
+    minting desk, not at the customer's machine.
+    """
+    ids = args.pack or []
+    if not ids:
+        return []
+    from steward import features as feat
+
+    unknown = [i for i in ids if not feat.is_pack(i)]
+    if unknown:
+        sys.exit("unknown pack id(s), not in the feature registry: %s"
+                 % ", ".join(sorted(unknown)))
+    versions = list(args.pack_version or [])
+    if len(versions) > len(ids):
+        sys.exit("more --pack-version values than --pack ids")
+    versions = versions + [1] * (len(ids) - len(versions))
+    packs = []
+    for pack_id, version in zip(ids, versions):
+        if isinstance(version, bool) or version < 1:
+            sys.exit("--pack-version must be a positive integer for %s" % pack_id)
+        entry = {"id": pack_id, "version": version}
+        if args.pack_expires:
+            entry["expires"] = args.pack_expires
+        packs.append(entry)
+    return packs
+
+
 def cmd_mint(args) -> int:
     from steward import license as lic
 
@@ -113,6 +153,9 @@ def cmd_mint(args) -> int:
         "issued": args.issued or lic.today_iso(),
         "features": sorted(issuable),
     }
+    packs = _packs_from_args(args)
+    if packs:
+        payload["packs"] = packs
     if args.expires:
         payload["expires"] = args.expires
     if args.note:
@@ -145,6 +188,10 @@ def cmd_verify(args) -> int:
     print("machine:   %s" % payload["machine"])
     print("issued:    %s" % payload["issued"])
     print("features:  %s" % ", ".join(payload["features"]))
+    for pack in payload.get("packs") or []:
+        print("pack:      %s v%d (%s)"
+              % (pack["id"], pack["version"],
+                 pack.get("expires") or "perpetual"))
     print("expires:   %s (absent = perpetual)" % payload.get("expires", "never"))
     return 0
 
@@ -169,6 +216,15 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--issued", help="ISO issue date (default today)")
     m.add_argument("--feature", action="append",
                    help="extra feature beyond the tier grant (repeatable)")
+    m.add_argument("--pack", action="append", default=None, metavar="ID",
+                   help="attach a feature pack by its registered id (repeatable); "
+                        "must be a pack known to the feature registry")
+    m.add_argument("--pack-version", type=int, action="append", default=None,
+                   metavar="N",
+                   help="pack version per --pack, in order (default 1)")
+    m.add_argument("--pack-expires", metavar="ISO",
+                   help="expiry date applied to every pack minted in this run "
+                        "('YYYY-MM-DD'); absent = perpetual")
     m.add_argument("--note", help="optional human note")
     m.add_argument("--key", help="path to the vendor private key (PEM)")
     m.add_argument("--out", help="output file; default prints to stdout")
