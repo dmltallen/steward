@@ -94,6 +94,14 @@ DEFAULT_PORT = 3877
 DEFAULT_MODEL = "qwen3:8b"  # resident 8B assistant, the v0.1 pick, benchmarked T1
 DEFAULT_SOURCE = str(Path(__file__).resolve().parents[3] / "demo" / "source")
 MAX_BODY = 1_000_000
+# Chat auto-citation (F4): the daemon grounds a turn in the retrieval index at
+# the data root when it has documents. Fail-closed: no db, no documents, a
+# backend error, or nothing above the floor all leave the chat turn unchanged.
+# The floors are caller-side decisions the citation library deliberately left
+# to the daemon (see docs/RETRIEVAL.md); 0.5 is the minimum cosine a hit needs
+# to be offered to the model, 7000 chars caps the grounded source block.
+CITE_SCORE_FLOOR = 0.5
+CITE_BUDGET_CHARS = 7000
 
 try:  # report the package version, not a hand-kept constant
     from steward import __version__ as VERSION
@@ -192,13 +200,21 @@ class DaemonContext:
 
     def __init__(self, *, runtime, model: str, source_dir: str,
                  db_path: Path, secret: bytes, version: str,
-                 tool_overrides: dict | None = None) -> None:
+                 tool_overrides: dict | None = None,
+                 retrieval_index=None) -> None:
         self.runtime = runtime
         self.model = model
         self.source_dir = source_dir
         self.db_path = db_path
         self.secret = secret
         self.version = version
+        # Chat auto-citation index. None means "derive at first use from the
+        # data root" (the same <data>/db/index.db the webapp Files tab uses).
+        # A test or harness may inject a fixed index to ground a turn without
+        # talking to Ollama; setting one never changes what a normal daemon
+        # does.
+        self.retrieval_index = retrieval_index
+        self._retrieval_index_lazy = None
         self.pair_code = generate_pair_code()
         self.pairs: set[str] = set()  # distinct device labels that ever paired
         self.limiter = PairRateLimiter()
@@ -269,6 +285,22 @@ class DaemonContext:
             from steward import ota as ota_mod
             self.ota_source = ota_mod.resolve_source()
         return self.ota_source
+
+    def resolved_retrieval_index(self):
+        """The chat-citation index: injected one if present, else a lazy
+        RetrievalIndex rooted at this daemon's data root (same index the
+        webapp Files tab builds). Returns None if it cannot be resolved so
+        chat grounding fails closed."""
+        if self.retrieval_index is not None:
+            return self.retrieval_index
+        if self._retrieval_index_lazy is None:
+            try:
+                from steward.retrieval.index import RetrievalIndex
+                data_root = Path(self.db_path).resolve().parent.parent
+                self._retrieval_index_lazy = RetrievalIndex(data_root_path=data_root)
+            except Exception:  # noqa: BLE001 - grounding is never fatal
+                return None
+        return self._retrieval_index_lazy
 
     def installed_channel(self) -> str:
         """The install channel that owns this daemon's binary (cached).
@@ -614,12 +646,74 @@ class Handler(BaseHTTPRequestHandler):
         instead of returning raw JSON blob text. emit receives the SSE events
         (run_loop streams model deltas and per-step tool events); the shim
         passes emit=None and gets only final text back.
+
+        Before the loop the turn is grounded in the retrieval index (F4 chat
+        auto-citation) when the index has documents and scores above the
+        floor. The sources are appended to the system prompt as numbered
+        blocks and every claim is expected to cite [n]. After the loop the
+        citations are resolved and a Sources block is appended to the final
+        text when the reply cited anything. Every failure path leaves the
+        turn ungrounded (exact pre-F4 behavior), never a chat error.
         """
-        return run_loop(
+        grounded = self._ground_chat(messages)
+        system_prompt = tool_system_prompt(self.ctx.tool_registry)
+        if grounded is not None:
+            instruction, selected = grounded
+            system_prompt = system_prompt + "\n\n" + instruction
+        final = run_loop(
             self.ctx.runtime, self.ctx.tool_registry, self.ctx.tool_settings,
             self.ctx.approval_manager, messages,
-            system_prompt=tool_system_prompt(self.ctx.tool_registry),
+            system_prompt=system_prompt,
             model=self.ctx.model, emit=emit)
+        if grounded is not None:
+            final = self._append_chat_sources(final, grounded[1])
+        return final
+
+    def _ground_chat(self, messages: list):
+        """Return (prompt_instruction, selected) to ground a turn, or None.
+
+        Fail-closed: None when there is no index (or it has no documents), the
+        backend errors, nothing scores above CITE_SCORE_FLOOR, or the chat has
+        no fresh user turn. Callers append the returned context to the system
+        prompt and cite it as [n]; a None return means the turn is unchanged
+        from a plain assistant chat."""
+        user_turn = next((m for m in reversed(messages)
+                          if m.get("role") == "user"), None)
+        question = (user_turn or {}).get("content", "")
+        question = (question or "").strip()
+        if not question:
+            return None
+        index = self.ctx.resolved_retrieval_index()
+        if index is None:
+            return None
+        try:
+            stats = index.stats()
+            if not stats.get("documents"):
+                return None
+            hits = [h for h in index.search(question, k=8)
+                    if float(h.get("score", 0.0)) >= CITE_SCORE_FLOOR]
+        except Exception:  # noqa: BLE001 - grounding is never fatal
+            return None
+        from steward.citations import build_prompt, select_context
+        selected = select_context(hits, budget_chars=CITE_BUDGET_CHARS)
+        if not selected:
+            return None
+        return build_prompt(question, selected), selected
+
+    def _append_chat_sources(self, final: str, selected) -> str:
+        """Resolve the [n] markers the final reply used and append the Sources
+        block, or return the reply untouched when it cited nothing."""
+        if not selected:
+            return final
+        try:
+            from steward.citations import extract_citations, render_sources
+            result = extract_citations(final, selected)
+            sources = render_sources(result["used"])
+        except Exception:  # noqa: BLE001 - a broken reply never breaks chat
+            return final
+        if not sources:
+            return final
+        return (final or "").rstrip() + "\n\n" + sources
 
     def _handle_v1_chat(self) -> None:
         data = self._read_json()
@@ -1062,6 +1156,7 @@ def create_server(addr, *, runtime, model: str = DEFAULT_MODEL,
                   instance_name_override: str | None = None,
                   host_ip: str | None = None,
                   tool_overrides: dict | None = None,
+                  retrieval_index=None,
                   version: str = VERSION) -> StewardServer:
     """Build a fully-wired StewardServer.
 
@@ -1070,7 +1165,10 @@ def create_server(addr, *, runtime, model: str = DEFAULT_MODEL,
     defaults to <data>/db/steward.db under STEWARD_HOME (or ~/.steward).
     tool_overrides lets the CLI and tests pin ToolSettings knobs (allow_shell,
     fs_roots, http_allowlist); defaults root the sandbox at the data dir and
-    keep allow_shell false and the http allowlist empty.
+    keep allow_shell false and the http allowlist empty. retrieval_index lets
+    a test inject a fixed index so a chat turn grounds without Ollama; a
+    normal daemon leaves it None and derives one from the data root on first
+    use (same index the webapp Files tab builds).
     """
     from steward.paths import db_dir
 
@@ -1080,7 +1178,8 @@ def create_server(addr, *, runtime, model: str = DEFAULT_MODEL,
     ctx = DaemonContext(runtime=runtime, model=model,
                         source_dir=source_dir or DEFAULT_SOURCE,
                         db_path=db_path, secret=key, version=version,
-                        tool_overrides=tool_overrides)
+                        tool_overrides=tool_overrides,
+                        retrieval_index=retrieval_index)
     return StewardServer(addr, ctx, advertise=advertise,
                          instance_name_override=instance_name_override,
                          host_ip=host_ip)

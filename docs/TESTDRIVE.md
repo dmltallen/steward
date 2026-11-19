@@ -227,9 +227,10 @@ in that folder.
 
 What to see: one or more hits, each rendered with a snippet and a citation
 line `Source <path> at char N - score 0.xxxx`. That hit with its citation is
-the first retrieval answer. If the chat layer also answers from it, note
-that; this release the verified retrieval surface is the Files search, chat
-auto-citation is not wired yet (post-v1, logged in F4).
+the first retrieval answer. The chat layer also answers from the index: a
+chat turn is grounded in the same index and, when a reply cites `[n]`, the
+reply ends with a `Sources:` block naming the exact files and lines (F4, wired
+in the daemon chat path).
 
 ### Part 6. Pair the phone (2:45)
 
@@ -324,7 +325,7 @@ Severity legend:
 | F1 | 1, one-line install | Measured 2026-10-26: every anonymous URL (raw script, release asset, release API) returns 404 because the repo is private. The README one-liner therefore fails on any machine with no gitea token. Worked only with authenticated download. A real buyer on a fresh machine cannot install. | seen | high | fix-now | required before v1 launch |
 | F2 | 1, install snippet | README and docs/QUICKSTART.md name `steward_1.0.0_amd64.deb`, but this release built only `steward_1.0.0_arm64.deb` (U1 is arm64; no amd64 artifact exists). The snippet would fail or 404 here. | seen | medium | fix-now | required (correct filename, or build amd64 too) |
 | F3 | whole script, Windows box | Windows leg of this gate is not runnable this release: no Windows binary exists, winget manifest is a template with placeholder checksums, NOT MEASURED. DONE for the gate needs only one machine, so U1 stands. | n/a | high (for the promise) | post-v1 | optional, only if a Windows ship is tracked now |
-| F4 | 5, chat retrieval | Chat auto-citation is not wired this release; the retrieval answer lives in the Files search, not in the chat reply. Documented scope, not a defect. | n/a | low | post-v1 | optional |
+| F4 | 5, chat retrieval | Wired in the integrate card: a chat turn grounds in the retrieval index and a reply that cites `[n]` ends with a `Sources:` block resolving the exact files and lines (fail-closed; no index leaves a plain assistant turn). Upstream a chat citation is proven measured on the merged tree. | seen | low | fixed-now | recommended |
 | 1 | 0 | | | | | |
 | 2 | 1 | | | | | |
 | 3 | 2 | | | | | |
@@ -389,7 +390,7 @@ handset, and the Windows and macOS legs that were never built.
 | F1 | install one-liner | every anonymous URL 404s on a private repo, so a fresh machine cannot install | high | **fixed in 1.0.1** (`STEWARD_GITEA_TOKEN`, explicit hint) |
 | F2 | install docs | README and QUICKSTART named an amd64 deb this release never built | medium | **fixed in 1.0.1** (arch-aware) |
 | F3 | machine legs | no Windows or macOS binary exists; winget and brew manifests are templates | high for the promise | post-v1 (needs an amd64/Windows build host) |
-| F4 | chat vs retrieval | retrieval answers live in the Files pane; chat replies do not cite them | low | post-v1 |
+| F4 | chat vs retrieval | retrieval answers live in the Files pane; chat replies do not cite them | low | **fixed in 1.3.0** (chat grounding in the daemon chat path, Sources block appended) |
 | F5 | `steward serve` | `--port`, `--model`, `--source`, `--host`, `--ollama-url` rejected as unrecognized, which also broke any unit file passing flags | high | **fixed in 1.0.1** |
 | F6 | `setup --keep-daemon` | printed that the daemon was left running while the in-process thread died with setup | medium | **fixed in 1.0.1** (detached handoff verified by /health) |
 | F7 | chat latency | first visible token at 17.0 s because the model's hidden reasoning streamed before any content; turn 23.7 s | critical for the first-run impression | **fixed in 1.0.1** (`think` off by default, `keep_alive` 30m; now 0.084 s first token, 1.5 s turn) |
@@ -429,8 +430,10 @@ package without `DEBIAN/md5sums`, so `dpkg -r` left `/usr/bin/steward` behind on
 a machine. The Makefile now generates the manifest and normalises the unit file
 mode to 0644.
 
-Remaining open after this run: **F8** (tools are library-only, unreachable from
-chat), **F3** (no Windows or macOS binary), **F4** (no citations in chat). The
+Remaining open after this run: **F3** (no Windows or macOS binary). F8 and F4
+are now closed: the F8 wave made tools reachable from chat (daemon tool loop)
+and the integrate card wired chat auto-citation (a reply that cites `[n]`
+ends with a `Sources:` block). The
 OTA check source-resolution gap is closed (fixed after 1.2.0): `steward ota
 check` now resolves the released default exactly like the daemon, so a stock
 install needs no manifest and no `STEWARD_OTA_URL`. The released default is

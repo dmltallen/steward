@@ -111,5 +111,10 @@ else:
 ```
 
 The daemon wiring that runs this end to end (search, prompt, model call,
-resolution, rendering) is a separate card that merges after this one and
-lives in the chat path.
+resolution, rendering) lives in the chat path of `src/steward/server/daemon.py`
+(`_ground_chat` + `_append_chat_sources` in the tool-loop turn): a `/v1/chat`
+or `/chat` turn is grounded in the data-root retrieval index when it has
+documents, and a reply that cites `[n]` gets a `Sources:` block appended.
+It is fail-closed: no index, no documents, a backend error, or nothing above
+the caller-side score floor leaves the turn as a plain assistant chat.
+
