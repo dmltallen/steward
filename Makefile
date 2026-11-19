@@ -29,7 +29,7 @@ else
 ARCH := $(UNAME_M)
 endif
 
-.PHONY: build-linux build-deb deb-dpkg build-win clean venv-nfpm publish-assets
+.PHONY: build-linux build-deb deb-dpkg build-win clean venv-nfpm publish-assets release
 
 # --- environment ----------------------------------------------------------
 # Venv bootstrap. Debian's python3 -m venv can produce a venv without pip
@@ -126,6 +126,16 @@ build-win:
 	@echo "    The winget manifest lives at packaging/winget/ and is a"
 	@echo "    validated template; publishing needs a Microsoft account"
 	@echo "    and is NOT MEASURED."
+
+# --- release ----------------------------------------------------------------
+# One command to cut a release for the pyproject.toml version: preflight, full
+# test suite, native build, artifact checksums, signed update manifest, then
+# publish + commit + tag. Run `make release RELEASE_ARGS="--dry-run"` to
+# rehearse without publishing anything. The full flow and rollback story live
+# in docs/RELEASE.md.
+release:
+	@echo "==> cutting release $(VERSION)"
+	@python3 tools/cut_release.py --version $(VERSION) $(RELEASE_ARGS)
 
 # --- cleanup ---------------------------------------------------------------
 clean:

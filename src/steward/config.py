@@ -48,6 +48,10 @@ DEFAULT_OLLAMA_URL = "http://localhost:11434"
 # operator can also pin a different source in <data>/config.json. Reaching
 # it is never required for a normal start: an unreachable source records a
 # status on the daemon instead of failing the unit.
+# This is the private gitea raw path, so it answers only to a client with repo
+# access; `tools/cut_release.py` publishes the manifest to this exact path on
+# master (it commits releases/update.json as part of a release). A public
+# GitHub mirror changes the URL, and the new default is this one constant.
 DEFAULT_OTA_URL = (
     "https://github.com/dmltallen/steward/raw/branch/master/releases/update.json"
 )
