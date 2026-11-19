@@ -3,6 +3,18 @@
 `steward.rb` is a Homebrew cask that installs the single-file macOS binary as
 `steward`.
 
+## Who owns updates
+
+One owner per install. When Steward is installed through this cask, Homebrew
+owns the binary, so updates come from Homebrew (`brew upgrade --cask steward`)
+and the cask MUST NOT declare `auto_updates true`. Steward's in-app updater
+detects the install channel at runtime and refuses to replace a
+package-managed binary (it returns the exact command a person runs instead),
+so declaring auto_updates would claim the app self-updates when it refuses to,
+hiding the cask from `brew outdated`. Manual installs and source checkouts
+self-update through Steward's own updater. The rule lives in `steward.rb` and
+in docs/RELEASE.md.
+
 ## Status
 
 NOT MEASURED. There is no macOS build on this project yet, so the cask is a

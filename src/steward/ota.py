@@ -90,6 +90,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -524,18 +525,28 @@ def check_for_update(source: str, fetcher=None, root: Path | None = None) -> dic
 
 
 def check_update(source: str | None = None, fetcher=None,
-                 root: Path | None = None) -> dict:
+                 root: Path | None = None,
+                 channel: str | None = None) -> dict:
     """A full update check: the catalog and the app (schema v2).
 
     Verifies the manifest (a tampered one raises SignatureError before
     anything is reported, so a refusal is the state, never a silent pass).
     Returns {ok, state, catalog: {...}, app: {...}, available, source,
-    manifest}. available is True when either half has a newer, installable
-    version. The manifest's exact payload is included so callers can render
-    notes or a changelog link.
+    channel, managed_by, managed_update_command, manifest}. available is True
+    when either half has a newer, installable version. The manifest's exact
+    payload is included so callers can render notes or a changelog link.
+
+    `channel` is the install channel (detected when None). On a
+    package-managed channel the app half reports available=False even when a
+    newer version exists, so no client shows an Update button for a binary
+    the package manager owns; latest_version is still reported and the
+    exact package-manager command rides in managed_update_command.
     """
     src = source if source is not None else resolve_source()
     payload = verify_manifest(fetch_document(src, fetcher))
+    channel = channel if channel is not None else detect_channel()
+    managed = channel in MANAGED_CHANNELS
+    managed_command = channel_update_command(channel) if managed else None
     st = current_state(root) or {}
     current_catalog = st.get("active_catalog") or "embedded"
     catalog = {
@@ -588,12 +599,22 @@ def check_update(source: str | None = None, fetcher=None,
         )
         if not app["available"]:
             app["reason"] = "; ".join(warnings) or "not available"
+    if managed and app.get("available"):
+        # A package manager owns this binary: the in-app updater must not
+        # offer an Update button for it. The newer version is still reported
+        # (latest_version/notes stay), but the button path is closed and the
+        # exact package-manager command is carried instead.
+        app["available"] = False
+        app["reason"] = "managed by %s: %s" % (channel, managed_command)
     return {
         "ok": True,
         "state": "ok",
         "available": bool(catalog["available"] or app["available"]),
         "catalog": catalog,
         "app": app,
+        "channel": channel,
+        "managed_by": channel if managed else None,
+        "managed_update_command": managed_command,
         "source": src,
         "checked_at": _iso_now(),
         "manifest": payload,
@@ -613,6 +634,213 @@ def _source_supports(min_source: str | None) -> bool:
     if not min_source:
         return True
     return not _version_gt(min_source, installed_app_version())
+
+
+# ---------------------------------------------------------------------------
+# Install channel detection: one owner per install
+# ---------------------------------------------------------------------------
+#
+# A product that replaces its own binary must never do so when a package
+# manager also owns that file. The channel string says which owner this
+# install has, proven by the platform's own tools, never guessed:
+#
+#   * "apt"     - dpkg owns the running binary (Debian/Ubuntu .deb install)
+#   * "brew"    - the binary lives under a Homebrew prefix (cask install)
+#   * "winget"  - the binary lives in the winget package root (Windows)
+#   * "manual"  - a plain binary in a user path (no package manager involved)
+#   * "source"  - this process is running from a source checkout
+#   * "unknown" - no probe could prove an owner (the safe fallback)
+#
+# Channels in MANAGED_CHANNELS are package-managed: updates belong to that
+# manager, not to Steward's own updater. A managed install must refuse to
+# stage or swap its own binary and instead tell the user the exact command
+# to run.
+
+CHANNEL_SOURCE = "source"
+CHANNEL_APT = "apt"
+CHANNEL_BREW = "brew"
+CHANNEL_WINGET = "winget"
+CHANNEL_MANUAL = "manual"
+CHANNEL_UNKNOWN = "unknown"
+
+MANAGED_CHANNELS = frozenset({CHANNEL_APT, CHANNEL_BREW, CHANNEL_WINGET})
+
+# The exact command a person runs to update through the owning manager. These
+# are printed verbatim in refusals and surfaced to clients.
+CHANNEL_UPDATE_COMMANDS = {
+    CHANNEL_APT: "sudo apt install --only-upgrade steward",
+    CHANNEL_BREW: "brew upgrade --cask steward",
+    CHANNEL_WINGET: "winget upgrade --id Steward.Steward",
+}
+
+
+def _find_on_path(name: str, env: dict) -> str | None:
+    """The first executable `name` on env's PATH (env-driven for tests)."""
+    path = env.get("PATH") or os.defpath
+    for d in path.split(os.pathsep):
+        if not d:
+            continue
+        cand = os.path.join(d, name)
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    return None
+
+
+def _dpkg_owned_by(binary: str, env: dict) -> str | None:
+    """The dpkg package that owns `binary`, or None when nothing owns it."""
+    query = _find_on_path("dpkg-query", env)
+    if not query:
+        return None
+    try:
+        run = subprocess.run([query, "-S", binary], capture_output=True,
+                             text=True, timeout=15, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if run.returncode != 0:
+        return None
+    lines = (run.stdout or "").strip().splitlines()
+    if not lines:
+        return None
+    pkg = lines[0].split(":", 1)[0].strip()
+    return pkg or None
+
+
+def _homebrew_owns(binary: str, env: dict) -> bool:
+    """True when the binary resolves under a Homebrew Cellar or Caskroom."""
+    real = os.path.realpath(binary)
+    prefixes = []
+    brew = _find_on_path("brew", env)
+    if brew:
+        try:
+            run = subprocess.run([brew, "--prefix"], capture_output=True,
+                                 text=True, timeout=15, env=env)
+            if run.returncode == 0 and run.stdout.strip():
+                prefixes.append(run.stdout.strip())
+        except (OSError, subprocess.SubprocessError):
+            pass
+    # The two default Homebrew prefixes, for when brew is not on PATH but the
+    # binary already sits in a Cellar/Caskroom (the honest layout marker).
+    prefixes += ["/opt/homebrew", "/usr/local"]
+    for prefix in prefixes:
+        base = prefix.rstrip("/")
+        if not base or not real.startswith(base + "/"):
+            continue
+        rel = real[len(base):]
+        if rel.startswith("/Cellar/") or rel.startswith("/Caskroom/"):
+            return True
+    return False
+
+
+def _winget_owns(binary: str, env: dict) -> bool:
+    """True when the binary lives under the winget package root (Windows).
+
+    Only probed on Windows: `winget install` (portable type, which is what the
+    packaging/winget manifest declares) places binaries under
+    %LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\<id>\\...
+    """
+    if os.name != "nt":
+        return False
+    local = env.get("LOCALAPPDATA") or ""
+    if not local:
+        return False
+    root = os.path.join(local, "Microsoft", "WinGet", "Packages")
+    real = os.path.realpath(binary)
+    rroot = os.path.realpath(root)
+    return real == rroot or real.startswith(rroot + os.sep)
+
+
+def _is_user_path(binary: str, env: dict) -> bool:
+    """True when the binary lives under the invoking user's home directory."""
+    home = env.get("HOME") or os.path.expanduser("~")
+    if not home:
+        return False
+    real = os.path.realpath(binary)
+    hreal = os.path.realpath(home)
+    return real == hreal or real.startswith(hreal + os.sep)
+
+
+def _running_binary_path() -> str:
+    """The frozen binary this process runs as, '' when running from source.
+
+    A frozen PyInstaller build sets sys.executable to the binary path; a
+    source checkout (python -m steward...) has no steward binary at all.
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.realpath(sys.executable)
+    return ""
+
+
+def detect_channel(binary: str | None = None, env: dict | None = None) -> str:
+    """Which channel owns this Steward install.
+
+    `binary` defaults to the running frozen binary (or "source" when the
+    process is a source checkout); `env` defaults to os.environ and drives
+    every PATH/HOME probe so tests can stage a scratch install. Never
+    guesses: every positive result is backed by a platform probe, everything
+    else falls back to "unknown".
+    """
+    env = dict(os.environ) if env is None else env
+    if binary is None:
+        binary = _running_binary_path()
+        if not binary:
+            return CHANNEL_SOURCE
+    if _dpkg_owned_by(binary, env):
+        return CHANNEL_APT
+    if _homebrew_owns(binary, env):
+        return CHANNEL_BREW
+    if _winget_owns(binary, env):
+        return CHANNEL_WINGET
+    if _is_user_path(binary, env):
+        return CHANNEL_MANUAL
+    return CHANNEL_UNKNOWN
+
+
+def channel_update_command(channel: str) -> str:
+    """The exact update command for a package-managed channel, '' otherwise."""
+    return CHANNEL_UPDATE_COMMANDS.get(channel, "")
+
+
+def managed_by_message(channel: str) -> str:
+    """One-line refusal a person reads when a package manager owns installs."""
+    return ("update is managed by %s; Steward does not replace a "
+            "package-managed binary. Run: %s"
+            % (channel, channel_update_command(channel)))
+
+
+def managed_by_update_refusal(channel: str | None = None,
+                              payload: dict | None = None,
+                              root: Path | None = None) -> dict | None:
+    """The refusal result when a package manager owns this install.
+
+    Returns None when self-update is allowed (an unmanaged channel, or a
+    manifest that would not swap any app binary for this host). Otherwise a
+    structured result like the other OTA refusals, carrying the channel and
+    the exact command a person runs. The daemon apply route, both CLI apply
+    paths, and apply_update() itself all use this one function, so every
+    surface refuses with the same message. `payload`/`root` let the deep
+    guard refuse only when a binary would actually swap; a catalog-only
+    apply (no app block for this host) is not a binary replacement and is
+    allowed even on a managed install.
+    """
+    channel = channel if channel is not None else detect_channel()
+    if channel not in MANAGED_CHANNELS:
+        return None
+    if payload is not None and not _app_install_needed(payload, root):
+        # No app payload for this host would swap: catalog-only apply is not
+        # a binary replacement and does not fight the package manager.
+        return None
+    message = managed_by_message(channel)
+    return {
+        "ok": False,
+        "state": "managed",
+        "channel": channel,
+        "managed_by": channel,
+        "update_command": channel_update_command(channel),
+        "error": message,
+        "reason": message,
+        "applied": False,
+        "rolled_back": False,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -952,19 +1180,25 @@ def _auto_probe(app_result: dict | None):
 
 
 def apply_update(doc: dict, health_probe=None, root: Path | None = None,
-                 timeout: float = APPLY_PROBE_TIMEOUT_S) -> dict:
+                 timeout: float = APPLY_PROBE_TIMEOUT_S,
+                 channel: str | None = None) -> dict:
     """Atomically activate a signed catalog and/or app update, with rollback.
 
     The envelope signature is re-verified here, so a tampered manifest is
-    refused before anything is written. Steps: write the immutable
-    catalog-<version>.json, install the new generation into the in-memory
-    catalog, move the verified staged app payload into the immutable app dir
-    (when the manifest carries one for this host), commit the pointer with
-    one atomic rename (the commit point), then health-probe the new bundle
-    (for an app install: run the new binary and require its version). If the
-    probe does not pass within `timeout` seconds, the pointer is restored to
-    the previous value and the new catalog file and new app binary are
-    removed, so the old state - and the old app binary - fully answer again.
+    refused before anything is written. On a package-managed install the
+    apply refuses up front (managed_by_update_refusal) and never writes,
+    stages, or swaps a binary: the package manager owns that file and the
+    one-click updater must not fight it. The channel string is the install
+    channel (detected when None, injected by tests). Steps: write the
+    immutable catalog-<version>.json, install the new generation into the
+    in-memory catalog, move the verified staged app payload into the
+    immutable app dir (when the manifest carries one for this host), commit
+    the pointer with one atomic rename (the commit point), then health-probe
+    the new bundle (for an app install: run the new binary and require its
+    version). If the probe does not pass within `timeout` seconds, the
+    pointer is restored to the previous value and the new catalog file and
+    new app binary are removed, so the old state - and the old app binary -
+    fully answer again.
 
     `health_probe` may be None: an app install then probes the new binary,
     anything else falls back to the backend probe.
@@ -973,10 +1207,20 @@ def apply_update(doc: dict, health_probe=None, root: Path | None = None,
     _validate_manifest_payload(payload)
     version = payload["version"]
     root = root if root is not None else paths.data_root()
+    channel = channel if channel is not None else detect_channel()
+
+    # Deep guard: a package manager that owns the binary owns this update.
+    # Checked before any write, so a dpkg/brew/winget install never stages or
+    # swaps under its own binary. catalog-only applies stay allowed (no swap).
+    refusal = managed_by_update_refusal(channel=channel, payload=payload,
+                                        root=root)
+    if refusal is not None:
+        return refusal
+
     prev = current_state(root)
     if (prev and prev.get("active_catalog") == version
             and not _app_install_needed(payload, root)):
-        return {"applied": False, "rolled_back": False,
+        return {"applied": False, "rolled_back": False, "channel": channel,
                 "reason": "version %s is already active" % version}
 
     paths.ensure_dir(_ota_dir(root))
@@ -997,6 +1241,7 @@ def apply_update(doc: dict, health_probe=None, root: Path | None = None,
             "applied": True,
             "rolled_back": False,
             "version": version,
+            "channel": channel,
             "models": installed,
             "hardware": new_pointer.get("hardware"),
             "plan": new_pointer.get("plan"),
@@ -1024,6 +1269,7 @@ def apply_update(doc: dict, health_probe=None, root: Path | None = None,
         "applied": False,
         "rolled_back": True,
         "version": version,
+        "channel": channel,
         "reason": result.get("error") or "health probe failed",
         "app": app_fail,
     }
@@ -1111,4 +1357,5 @@ def status(root: Path | None = None) -> dict:
         "plan": st.get("plan"),
         "updated": st.get("updated"),
         "update_url": resolve_source(),
+        "channel": detect_channel(),
     }

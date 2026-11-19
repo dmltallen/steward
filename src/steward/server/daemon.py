@@ -218,6 +218,10 @@ class DaemonContext:
             "checked_at": None, "source": None, "error": None,
         }
         self._update_lock = threading.Lock()
+        # Install channel, computed once on first use (never guessed: every
+        # value is platform-probed by steward.ota.detect_channel). Tests that
+        # stage a fake install set this directly to force the channel.
+        self._installed_channel: str | None = None
         # How a client-triggered app restart happens. Empty in tests and when
         # the daemon runs embedded (create_server never installs one); the CLI
         # `serve` path sets it to an in-place exec of the freshly applied app
@@ -246,6 +250,18 @@ class DaemonContext:
             from steward import ota as ota_mod
             self.ota_source = ota_mod.resolve_source()
         return self.ota_source
+
+    def installed_channel(self) -> str:
+        """The install channel that owns this daemon's binary (cached).
+
+        Computed once via steward.ota.detect_channel(); a forced value set by
+        a test (or a scratch-install harness) takes precedence so the managed
+        refusal can be exercised without touching the host.
+        """
+        if self._installed_channel is None:
+            from steward import ota as ota_mod
+            self._installed_channel = ota_mod.detect_channel()
+        return self._installed_channel
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -460,6 +476,7 @@ class Handler(BaseHTTPRequestHandler):
             "model_resident": self.ctx.model in (h.get("models") or []),
             "version": self.ctx.version,
             "paired": len(self.ctx.pairs),
+            "channel": self.ctx.installed_channel(),
         })
 
     def _handle_bundle(self) -> None:
@@ -741,12 +758,25 @@ class Handler(BaseHTTPRequestHandler):
         from steward import ota as ota_mod
         root = self._data_root_path()
         source = self.ctx.update_source()
+        channel = self.ctx.installed_channel()
+
+        # A package manager owns this install: the check may still report that
+        # a newer app version exists, but the in-app updater must not offer a
+        # button for it. check_update already reports available=False with the
+        # exact managed command; carry the channel on failure paths too so the
+        # client never shows an Update button it cannot act on.
         try:
-            result = ota_mod.check_update(source=source, root=root)
+            result = ota_mod.check_update(source=source, root=root,
+                                          channel=channel)
             result["state"] = "ok"
         except Exception as exc:  # noqa: BLE001 - every source outcome is a status
             result = {"ok": False, "state": self._ota_failure_state(exc),
-                      "error": str(exc), "source": source}
+                      "error": str(exc), "source": source,
+                      "channel": channel}
+            managed = channel in ota_mod.MANAGED_CHANNELS
+            if managed:
+                result["managed_by"] = channel
+                result["managed_update_command"] = ota_mod.channel_update_command(channel)
         result["checked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         self.ctx.record_update_status(result)
         self._json(200, result)
@@ -782,6 +812,7 @@ class Handler(BaseHTTPRequestHandler):
         from steward import ota as ota_mod
         root = self._data_root_path()
         source = self.ctx.update_source()
+        channel = self.ctx.installed_channel()
         stream = (self.headers.get("Accept") or "").find("text/event-stream") != -1
 
         def emit(obj: dict) -> None:
@@ -790,6 +821,28 @@ class Handler(BaseHTTPRequestHandler):
 
         def progress(done, total) -> None:
             emit({"event": "progress", "done": done, "total": total})
+
+        # A package manager owns this install: apply must refuse, name the
+        # manager and the exact command, and never stage or swap the binary.
+        # Refuse before fetching a manifest so a managed install performs no
+        # network work for a self-update it is not allowed to do. The check
+        # route still reports that a newer version exists for the user to see.
+        early_refusal = ota_mod.managed_by_update_refusal(channel=channel)
+        if early_refusal is not None:
+            result = dict(early_refusal)
+            result["source"] = source
+            # The honest "what a person runs" is the package-manager command;
+            # pointing at the in-app updater would loop back into this refusal.
+            result["manual_command"] = result.get("update_command") \
+                or self.ctx.manual_update_command()
+            self.ctx.record_update_status(result)
+            if stream:
+                emit({"event": "result", "result": result})
+                emit({"event": "phase", "name": "done"})
+                self._sse_done()
+            else:
+                self._json(200, result)
+            return
 
         try:
             if stream:
