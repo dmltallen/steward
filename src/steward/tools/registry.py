@@ -224,10 +224,16 @@ def build_registry(settings: ToolSettings) -> dict[str, ToolSpec]:
 
 def execute_tool(registry: dict[str, ToolSpec], settings: ToolSettings,
                  approvals, name: str, args: dict,
-                 approval_timeout_s: float | None = None) -> dict:
+                 approval_timeout_s: float | None = None,
+                 on_approval=None) -> dict:
     """Run one tool call behind both gates: schema validation, then (for
     write/exec/net) a human approval. Returns a structured result, never
     raises on a refusal, so the loop can feed it straight back to the model.
+
+    on_approval, when given, is called with the fresh pending-approval record
+    right after it is created and before the call blocks on the decision, so a
+    streaming caller can announce the approval_required event. It never runs on
+    a read-risk call or on a refusal that happened before an approval existed.
     """
     if not isinstance(args, dict):
         return {"ok": False, "tool": name,
@@ -252,6 +258,8 @@ def execute_tool(registry: dict[str, ToolSpec], settings: ToolSettings,
                     "error": "no approval manager is available for %s-risk calls"
                              % spec.risk}
         record = approvals.create(name, args, spec.risk)
+        if on_approval is not None:
+            on_approval(record)
         decision, reason = approvals.wait(
             record["id"], approval_timeout_s if approval_timeout_s is not None
             else settings.approval_timeout_s)
