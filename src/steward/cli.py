@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -223,6 +222,7 @@ def _license_cmd(argv) -> int:
 
 
 def _ota_cmd(argv) -> int:
+    from . import license as lic
     from . import ota as ota_mod
     parser = argparse.ArgumentParser(prog="steward ota")
     sub = parser.add_subparsers(dest="ota_cmd", required=True)
@@ -249,21 +249,47 @@ def _ota_cmd(argv) -> int:
         print("updated:  %s" % (st["updated"] or "never"))
         return 0
 
-    source = args.manifest or os.environ.get("STEWARD_OTA_URL", "")
-    if not source:
-        print("no update source: pass --manifest or set STEWARD_OTA_URL")
-        return 1
+    # One source resolution for the CLI, identical to the daemon: an explicit
+    # --manifest wins, otherwise STEWARD_OTA_URL, else config.ota_url, else
+    # the released DEFAULT_OTA_URL. resolve_source() IS the daemon's path
+    # (DaemonContext.update_source -> resolve_source), so a stock install with
+    # no env var resolves the same released default the daemon uses. Before
+    # this, the CLI refused with "no update source" even though the released
+    # default existed, so the shipped default only worked through the daemon.
+    source = args.manifest or ota_mod.resolve_source()
 
+    # Every OTA failure below is one plain line for a person, never a
+    # traceback: a tampered or corrupt manifest prints "update manifest
+    # rejected" (fails closed), an unreachable source prints "update check
+    # failed" and names the URL it tried. Signature failures come out of the
+    # license layer as lic.LicenseError, not OtaError, so both families have
+    # to be caught here; catching only OtaError (as the apply path used to)
+    # let a bad signature crash the frozen binary's launcher.
     if args.ota_cmd == "check":
-        info = ota_mod.check_for_update(source)
+        try:
+            info = ota_mod.check_for_update(source)
+        except (ota_mod.OtaError, lic.LicenseError) as exc:
+            print("update manifest rejected: %s" % exc)
+            return 1
+        except Exception as exc:  # noqa: BLE001 - a person reads this, not a traceback
+            print("update check failed: %s (source: %s)" % (exc, source))
+            return 1
         print("update %savailable (current %s -> %s, %d models, released %s)" % (
             "" if info["available"] else "NOT ",
             info["current_version"], info["latest_version"],
             info["model_count"], info["released"] or "unknown"))
+        print("source:   %s" % source)
         return 0
 
-    doc = ota_mod.fetch_document(source)
-    result = ota_mod.apply_update(doc, ota_mod.backend_health_probe(args.model))
+    try:
+        doc = ota_mod.fetch_document(source)
+        result = ota_mod.apply_update(doc, ota_mod.backend_health_probe(args.model))
+    except (ota_mod.OtaError, lic.LicenseError) as exc:
+        print("update manifest rejected: %s" % exc)
+        return 1
+    except Exception as exc:  # noqa: BLE001 - a person reads this, not a traceback
+        print("update failed: %s (source: %s)" % (exc, source))
+        return 1
     if result["applied"]:
         print("applied catalog %s (%d models)" % (result["version"], len(result["models"])))
         plan = result.get("plan") or {}
