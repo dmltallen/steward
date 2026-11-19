@@ -284,3 +284,98 @@ def test_new_license_id_shape():
     assert ident.replace("STW-", "").isalnum()
     # two draws differ (collision practically impossible)
     assert ident != new_license_id()
+
+
+# ---------------------------------------------------------------------------
+# Feature packs: the offline entitlement seam on top of the v1 envelope
+# ---------------------------------------------------------------------------
+
+
+def test_v1_license_without_packs_is_unchanged(tmp_path, vendor, monkeypatch):
+    """A v1 license (no packs key) parses with zero packs and keeps every
+    existing behaviour: this is the backward-compat contract."""
+    home = tmp_path / "home"
+    machine(monkeypatch)
+    license = lic.verify_document(mint(payload(), vendor),
+                                  fingerprint="sha256:testmachine")
+    assert license.packs == ()
+    assert license.has_pack("browser_agent") is False
+    assert license.has_feature("tool_exec") is True
+    assert license.tier == "personal"
+    lic.activate(write_doc(tmp_path, mint(payload(), vendor)), home)
+    st = lic.status(home)
+    assert st["active"] is True
+    assert st["packs"] == []          # v1 status keeps a stable empty packs list
+
+
+def test_license_with_packs_parses_and_status_reports(tmp_path, vendor, monkeypatch):
+    home = tmp_path / "home"
+    machine(monkeypatch)
+    doc = mint(payload(tier="personal", packs=[
+        {"id": "browser_agent", "version": 1},
+        {"id": "multi_user", "version": 2, "expires": "2099-01-01"},
+    ]), vendor)
+    lic.activate(write_doc(tmp_path, doc), home)
+    st = lic.status(home)
+    assert st["active"] is True
+    assert st["tier"] == "personal"
+    assert st["packs"] == [
+        {"id": "browser_agent", "version": 1, "perpetual": True, "expires": None},
+        {"id": "multi_user", "version": 2, "perpetual": False,
+         "expires": "2099-01-01"},
+    ]
+    active = lic.active_license(home)
+    assert active is not None
+    assert active.has_pack("browser_agent") is True
+    assert active.has_pack("multi_user") is True
+    assert active.has_pack("smart_home_connectors") is False
+
+
+def test_pack_expiry_gates_has_pack(vendor):
+    lic_ok = lic.verify_document(mint(payload(packs=[
+        {"id": "multi_user", "version": 1, "expires": "2099-01-01"}]),
+        vendor), fingerprint="sha256:testmachine")
+    assert lic_ok.has_pack("multi_user") is True
+    assert lic_ok.has_pack("multi_user", today="2100-01-01") is False
+    lic_expired = lic.verify_document(mint(payload(packs=[
+        {"id": "multi_user", "version": 1, "expires": "2020-01-01"}]),
+        vendor), fingerprint="sha256:testmachine")
+    assert lic_expired.has_pack("multi_user") is False
+    lic_perpetual = lic.verify_document(mint(payload(packs=[
+        {"id": "multi_user", "version": 1}]),
+        vendor), fingerprint="sha256:testmachine")
+    assert lic_perpetual.has_pack("multi_user", today="9999-01-01") is True
+
+
+def test_empty_packs_list_is_legal(vendor):
+    license = lic.verify_document(mint(payload(packs=[]), vendor),
+                                  fingerprint="sha256:testmachine")
+    assert license.packs == ()
+
+
+def test_malformed_packs_rejected(vendor):
+    cases = [
+        "not-a-list",                        # packs must be a list
+        [{"version": 1}],                    # missing id
+        [{"id": "browser_agent"}],           # missing version
+        [{"id": "browser_agent", "version": "1"}],   # version not an int
+        [{"id": "browser_agent", "version": 0}],     # version below 1
+        [{"id": "browser_agent", "version": 1, "expires": 2026}],  # expiry not a str
+    ]
+    for packs in cases:
+        with pytest.raises(lic.MalformedLicense):
+            lic.verify_document(mint(payload(packs=packs), vendor),
+                                fingerprint="sha256:testmachine")
+
+
+def test_tampered_pack_rejected(vendor):
+    """Adding or editing a pack without re-signing breaks the envelope."""
+    doc = mint(payload(tier="free"), vendor)
+    doc["payload"]["packs"] = [{"id": "browser_agent", "version": 1}]
+    with pytest.raises(lic.SignatureError):
+        lic.verify_document(doc, fingerprint="sha256:testmachine")
+    doc = mint(payload(tier="free", packs=[{"id": "multi_user", "version": 1}]),
+               vendor)
+    doc["payload"]["packs"][0]["version"] = 99
+    with pytest.raises(lic.SignatureError):
+        lic.verify_document(doc, fingerprint="sha256:testmachine")

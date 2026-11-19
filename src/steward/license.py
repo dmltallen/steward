@@ -14,11 +14,22 @@ License file schema (JSON, envelope-signed Ed25519):
         "machine":  "sha256:<64 hex>",      # fingerprint of the target box
         "issued":   "YYYY-MM-DD",
         "features": ["chat", "retrieval", "daily_brief", ...],
-        "expires":  "YYYY-MM-DD"            # optional; absent = perpetual
+        "expires":  "YYYY-MM-DD",           # optional; absent = perpetual
+        "packs":    [                       # optional; absent in v1 licenses
+          {"id": "browser_agent", "version": 1, "expires": "YYYY-MM-DD"}
+        ]
       },
       "alg":  "ed25519",
       "sig":  "<hex signature over the canonical payload JSON>"
     }
+
+A v1 license with no "packs" key is unchanged and parses with zero packs.
+Packs are one-time, additive entitlements: a license keeps its tier grant and
+carries any number of packs on top. Each pack has an id (a registered
+feature id from steward.features), a version (the pack revision bought) and
+an optional expiry date (absent = perpetual). Everything about a pack is
+inside the same signed payload, so a tampered pack breaks the envelope
+signature exactly like a tampered feature list.
 
 verify_document() checks, in order: signature, machine fingerprint, expiry.
 A bad signature, a wrong-machine fingerprint, or an expired license all
@@ -235,6 +246,31 @@ def verify_envelope(doc: dict, public_key_hex: str | None = None) -> dict:
 VENDOR_PUBLIC_KEY_HEX = "3c05e05ea195d286aa124d6687728a1d9954025b7cb7533f39ee977fd14631bd"
 
 LICENSE_FIELDS = {"id", "tier", "machine", "issued", "features"}
+PACK_FIELDS = {"id", "version"}
+
+
+@dataclass(frozen=True)
+class Pack:
+    """A feature-pack entitlement minted into a license envelope.
+
+    Packs are one-time and additive: they sit on top of whatever tier the
+    license already grants. version is vendor data (the pack revision the
+    customer bought); expires is an exact ISO date or None for a perpetual
+    pack. Both are signed into the envelope, which makes them the vendor's
+    contract rather than a runtime decision.
+    """
+
+    id: str
+    version: int
+    expires: str | None = None
+
+    @property
+    def is_perpetual(self) -> bool:
+        return self.expires is None
+
+    def is_active(self, today: str) -> bool:
+        """True while the pack's expiry (if any) has not passed today."""
+        return self.expires is None or self.expires >= today
 
 
 @dataclass(frozen=True)
@@ -247,6 +283,7 @@ class License:
     issued: str
     features: frozenset
     expires: str | None = None
+    packs: tuple = ()
 
     @property
     def is_perpetual(self) -> bool:
@@ -254,6 +291,11 @@ class License:
 
     def has_feature(self, feature: str) -> bool:
         return feature in self.features
+
+    def has_pack(self, pack_id: str, today: str | None = None) -> bool:
+        """True when this license holds a non-expired pack with that id."""
+        d = today if today is not None else today_iso()
+        return any(p.id == pack_id and p.is_active(d) for p in self.packs)
 
 
 def today_iso() -> str:
@@ -281,6 +323,40 @@ def all_features() -> frozenset:
     return ALL_FEATURES
 
 
+def _parse_packs(raw) -> tuple:
+    """Parse the optional signed 'packs' list of a license payload.
+
+    A v1 license omits the key entirely: that parses to an empty tuple and
+    behaves exactly as before. A present but malformed value rejects the
+    license (the payload is signed, so a malformed packs field is a vendor
+    bug and we fail closed to the free tier rather than guess).
+    """
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise MalformedLicense("packs must be a list of pack objects")
+    packs = []
+    for i, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise MalformedLicense("pack %d must be a JSON object" % i)
+        missing = PACK_FIELDS - set(item)
+        if missing:
+            raise MalformedLicense(
+                "pack %d missing field(s): %s" % (i, ", ".join(sorted(missing))))
+        pack_id = item["id"]
+        if not isinstance(pack_id, str) or not pack_id:
+            raise MalformedLicense("pack %d id must be a non-empty string" % i)
+        version = item["version"]
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            raise MalformedLicense(
+                "pack %d version must be a positive integer" % i)
+        expires = item.get("expires")
+        if expires is not None and not isinstance(expires, str):
+            raise MalformedLicense("pack %d expires must be an ISO date string" % i)
+        packs.append(Pack(id=pack_id, version=version, expires=expires))
+    return tuple(packs)
+
+
 def validate_payload_shape(payload: dict) -> License:
     """Type-check the payload fields and return a normalized License.
 
@@ -300,6 +376,7 @@ def validate_payload_shape(payload: dict) -> License:
         raise MalformedLicense("expires must be an ISO date string")
     if not isinstance(payload.get("machine"), str):
         raise MalformedLicense("machine must be a fingerprint string")
+    packs = _parse_packs(payload.get("packs"))
     return License(
         id=str(payload["id"]),
         tier=tier,
@@ -307,6 +384,7 @@ def validate_payload_shape(payload: dict) -> License:
         issued=str(payload["issued"]),
         features=frozenset(features),
         expires=expires,
+        packs=packs,
     )
 
 
@@ -532,6 +610,7 @@ def status(root: Path | None = None) -> dict:
             "tier": "free",
             "license": None,
             "features": sorted(FREE_FEATURES),
+            "packs": [],
             "reason": reason,
             "path": str(target),
             "machine": machine_fingerprint(),
@@ -544,6 +623,11 @@ def status(root: Path | None = None) -> dict:
                     "expires": license.expires,
                     "machine": license.machine},
         "features": sorted(license.features),
+        "packs": [
+            {"id": p.id, "version": p.version,
+             "perpetual": p.is_perpetual, "expires": p.expires}
+            for p in license.packs
+        ],
         "reason": None,
         "path": str(target),
         "machine": license.machine,

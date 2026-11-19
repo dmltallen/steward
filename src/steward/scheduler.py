@@ -44,14 +44,36 @@ import threading
 import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Callable
+from typing import Callable, TYPE_CHECKING
 
 from steward.paths import data_root
 
 from .memory.brief import DEFAULT_INSTRUCTION
 
+if TYPE_CHECKING:  # pragma: no cover - type hints only, no import cycle
+    from .license import License as _LicenseType
+
 DEFAULT_TICK_S = 60.0
 DEFAULT_MODEL = "qwen3:8b"
+
+# Free tier holds exactly one scheduled brief. More scheduled jobs need the
+# scheduled_jobs entitlement (features.py / license.py), enforced in tick().
+FREE_SCHEDULED_JOBS = 1
+
+
+def _active_license_for(root) -> "_LicenseType | None":
+    """The verified active license for a data root, or None on any failure.
+
+    This is the fail-closed boundary for the scheduler: a malformed or
+    tampered license resolves to None (free tier) here, never a crash.
+    """
+    from . import license as _lic
+
+    try:
+        return _lic.active_license(root)
+    except Exception:  # noqa: BLE001 - a bad license never takes the loop down
+        return None
+
 
 # The seeded job a fresh install ships with. window 05:00-12:00 is the honest
 # awake-gating: a morning brief is written only while the box is awake in the
@@ -191,10 +213,17 @@ class JobStore:
     def __init__(self, db_path: str | Path | None = None,
                  jobs_path: str | Path | None = None,
                  now: Callable[[], float] | None = None) -> None:
-        root = Path(db_path) if db_path is not None else data_root()
-        self.db_path = root / "db" / "scheduler.db" if root.suffix != ".db" else root
+        if jobs_path is not None:
+            self.root = Path(jobs_path).parent
+            self.db_path = (Path(db_path) if db_path is not None
+                            else self.root / "db" / "scheduler.db")
+        else:
+            base = Path(db_path) if db_path is not None else data_root()
+            self.db_path = base / "db" / "scheduler.db" \
+                if base.suffix != ".db" else base
+            self.root = base.parent if base.suffix == ".db" else base
         self.jobs_path = (Path(jobs_path) if jobs_path is not None
-                          else Path(root) / "jobs.json")
+                          else Path(self.root) / "jobs.json")
         self.now = now or time.time
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
@@ -446,15 +475,53 @@ class Scheduler:
     def __init__(self, *, store: JobStore | None = None, runner=None,
                  tick_s: float = DEFAULT_TICK_S,
                  now: Callable[[], float] | None = None,
-                 cfg=None, jobs: list[dict] | None = None) -> None:
+                 cfg=None, jobs: list[dict] | None = None,
+                 entitlements: bool | None = None) -> None:
         self.store = store if store is not None else JobStore(now=now)
         self.cfg = cfg
+        # None = auto (enforce once a license is active at the data root),
+        # True = always enforce, False = never (legacy behavior).
+        self.entitlements = entitlements
         self.runner = runner if runner is not None else default_runner(cfg)
         self.tick_s = max(0.01, float(tick_s))
         self._now = now or time.time
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self.sync_jobs(jobs)
+
+    def _scheduled_jobs_allowed(self) -> bool:
+        """Is the scheduled-jobs entitlement in force for this scheduler run?
+
+        Three states are resolved here:
+
+        - No license file at this data root: legacy behavior is preserved and
+          the scheduler runs whatever jobs.json holds, exactly as it always
+          has. This is what keeps a fresh install (and every existing test)
+          unchanged.
+        - A license file exists but fails verification (tampered, wrong
+          machine, expired, malformed): the free tier applies, so only the
+          one scheduled brief runs. Fail closed, never a crash.
+        - A valid license exists: the single feature gate decides
+          (features.enabled("scheduled_jobs", ...)).
+
+        entitlements=None is the product default (auto). True forces strict
+        enforcement even with no license; False disables enforcement.
+        """
+        from . import license as _lic
+
+        if self.entitlements is False:
+            return True
+        lic = _active_license_for(self.store.root)
+        if lic is not None:
+            from . import features as _features
+
+            return _features.enabled("scheduled_jobs", lic, self.cfg)
+        has_file = _lic.license_path(self.store.root).is_file()
+        if self.entitlements is True or has_file:
+            # Strict mode, or a present-but-invalid license: free tier, so
+            # the scheduled-jobs entitlement is not held.
+            return False
+        return True
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -492,12 +559,14 @@ class Scheduler:
         catch-up. Never raises for a failing job. Returns a summary dict."""
         now_ts = self._now()
         due = self.store.due_jobs(now_ts)
+        scheduled_allowed = self._scheduled_jobs_allowed()
         summary = {
             "ticked_at": _iso(now_ts),
             "due": len(due),
             "ran": 0, "skipped": 0, "errors": 0,
             "ran_names": [], "skipped_names": [], "error_names": [],
         }
+        run_index = 0
         for job in due:
             if not _in_window(job["window_start"], job["window_end"], now_ts):
                 self.store.record_run(
@@ -509,6 +578,22 @@ class Scheduler:
                 summary["skipped"] += 1
                 summary["skipped_names"].append(job["name"])
                 continue
+            # The single feature gate, at this call site:
+            #   features.enabled("scheduled_jobs", lic.active_license(root), cfg)
+            # Scheduled briefs beyond the first need the scheduled_jobs
+            # entitlement. Every future call site reads the same one gate.
+            if not scheduled_allowed and run_index >= FREE_SCHEDULED_JOBS:
+                self.store.record_run(
+                    job, "skipped", now_ts,
+                    detail="entitlement required: scheduled_jobs (one "
+                           "scheduled brief ships free; a tier license lifts "
+                           "the cap)",
+                )
+                self.store.advance_next_run(job, now_ts)
+                summary["skipped"] += 1
+                summary["skipped_names"].append(job["name"])
+                continue
+            run_index += 1
             result = self._execute(job, now_ts)
             if result["status"] == "ok":
                 summary["ran"] += 1

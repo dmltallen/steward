@@ -218,6 +218,11 @@ def _license_cmd(argv) -> int:
         print("license:  not active (free tier)")
         print("reason:   %s" % st["reason"])
     print("features: %s" % ", ".join(st["features"]))
+    packs = st.get("packs") or []
+    if packs:
+        print("packs:    %s" % "; ".join(
+            "%s v%d (%s)" % (p["id"], p["version"], p.get("expires") or "perpetual")
+            for p in packs))
     return 0
 
 
