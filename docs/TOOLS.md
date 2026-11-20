@@ -1,8 +1,9 @@
 # Steward tools from chat (F8)
 
-Tools are now reachable from chat, server side only. This file states what is
-reachable today and what is still not, and documents the SSE contract the
-clients stream.
+Tools are now reachable from chat, on both surfaces. The server owns the tool
+loop and enforces every approval; the web client and the phone app render the
+tool steps and the approval prompts. This file states what is reachable today
+and what is still not, and documents the SSE contract the clients stream.
 
 ## What is reachable now
 
@@ -82,12 +83,16 @@ knob into it.
   refused. Wiring an allowlist entry point is follow-on work.
 * Extra `fs_roots` beyond the data dir are not configurable from the running
   product yet; a request to expand the sandbox needs a config key.
-* The web client (src/steward/webapp) does not render the tool events yet:
-  the server emits the frozen contract, the client card is the UI half of
-  F8 and follows separately.
-* The phone app (apps/mobile) has no approval UI, so on the phone a
-  write/exec/net request must be answered from the web client or the API
-  (POST /v1/approvals/{id}); otherwise it times out after the configured
-  approval window and returns a denial. Read tools work on the phone as-is.
+* The web client (src/steward/webapp) renders tool activity inside the chat
+  turn and answers approvals in place: each step shows the tool, its risk and
+  a one-line argument summary, a running spinner, then an ok or failed result,
+  and an approval prompt offers one-tap Approve or Deny with an expiry
+  countdown. Wiring lives in `onToolCall`, `onApprovalRequired` and
+  `onToolResult` in app.js.
+* The phone app (apps/mobile) shows the same tool steps and a bottom-sheet
+  approval prompt with Approve, Deny and the expiry countdown, so a
+  write/exec/net request can be answered from the phone without the web
+  client. The API route (`POST /v1/approvals/{id}`) remains available for
+  scripts and tests.
 * `calendar.read`/`calendar.write` only reach ICS files inside the data root;
   adding a separate calendar feed location is follow-on work.

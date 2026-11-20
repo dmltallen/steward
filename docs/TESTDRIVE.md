@@ -394,7 +394,7 @@ handset, and the Windows and macOS legs that were never built.
 | F5 | `steward serve` | `--port`, `--model`, `--source`, `--host`, `--ollama-url` rejected as unrecognized, which also broke any unit file passing flags | high | **fixed in 1.0.1** |
 | F6 | `setup --keep-daemon` | printed that the daemon was left running while the in-process thread died with setup | medium | **fixed in 1.0.1** (detached handoff verified by /health) |
 | F7 | chat latency | first visible token at 17.0 s because the model's hidden reasoning streamed before any content; turn 23.7 s | critical for the first-run impression | **fixed in 1.0.1** (`think` off by default, `keep_alive` 30m; now 0.084 s first token, 1.5 s turn) |
-| F8 | tools | `run_loop` exists with approvals, allowlists and sandbox tests, but no daemon route or chat path invokes it, so tool use is unreachable in the product | high | **open, fix-now** |
+| F8 | tools | `run_loop` exists with approvals, allowlists and sandbox tests, but no daemon route or chat path invokes it, so tool use is unreachable in the product | high | **fixed in 1.3.0** (the daemon chat path runs the tool loop and streams tool_call, approval_required and tool_result; the web client and the phone render the steps and approve in place) |
 | F9 | briefs | a brief could only appear on a schedule; nothing let a person ask for one | medium | **fixed in 1.0.1** (`steward brief`, `POST /v1/briefs/generate`) |
 | F10 | `ota status` | reported "models: 0" while the embedded catalog holds 9 | low | **fixed in 1.0.1** |
 | F11 | `/health` | reported daemon version 0.2.0 while the package was 1.0.0 | low | **fixed in 1.0.1** (reads the package version) |
