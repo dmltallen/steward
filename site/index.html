@@ -14,7 +14,8 @@
       <span class="logo">Steward</span>
       <nav class="nav">
         <a href="#how">How it works</a>
-        <a href="#pricing">Pricing</a>
+        <a href="#free">Free to install</a>
+        <a href="#privacy">Privacy</a>
         <a href="#compare">Why Steward</a>
       </nav>
     </div>
@@ -28,14 +29,14 @@
         <p class="lede">
           Steward turns the computer you already own into an always-on personal
           assistant. It detects your machine, picks the right open models, and
-          serves them to your phone and desktop. No $3,499 one-use box. No
-          monthly subscription. One-time license, perpetual use.
+          serves them to your phone and desktop. No subscription, no account,
+          no data leaving your network.
         </p>
         <div class="cta-row">
-          <a class="btn btn-primary" href="#pricing">See the one-time price</a>
-          <a class="btn btn-ghost" href="#how">How it works</a>
+          <a class="btn btn-primary" href="#how">How it works</a>
+          <a class="btn btn-ghost" href="#free">Free to install</a>
         </div>
-        <p class="fine">Free to install and use. Paid only for feature packs you want.</p>
+        <p class="fine">Free to install and use. A perpetual license keeps working offline forever, with nothing to renew.</p>
         <p class="fine">Runs on what you own: any machine with 16 GB or more of usable memory, computed at install, not certified. 40 GB unlocks the full experience.</p>
         <p class="fine">Privacy by design: chats, files and memory stay on your box. The only outbound calls are the model download and update checks.</p>
       </div>
@@ -74,7 +75,7 @@
         </div>
         <div class="col">
           <h3>Yours to keep</h3>
-          <p>One-time perpetual license, offline forever. Open models, MIT source. Feature packs are optional add-ons, never a gate.</p>
+          <p>Perpetual license, offline forever. Open models, MIT source. Capability it gives you once keeps working without renewals.</p>
         </div>
       </div>
     </section>
@@ -84,6 +85,7 @@
         <div class="col">
           <h3>Compatibility is computed, not certified</h3>
           <p>Steward probes your machine at install and returns a verdict: full, lite, or no-fit. The floor is 16 GB of usable memory; 40 GB unlocks image understanding. No hardware is certified; your machine is whatever the check says it is that day.</p>
+          <p>Platforms are stated the same way. Binaries exist for Linux arm64 today, and the installation docs say so; Windows, macOS and amd64 are not built yet.</p>
         </div>
         <div class="col">
           <h3>No account, no telemetry</h3>
@@ -92,34 +94,15 @@
       </div>
     </section>
 
-    <section class="pricing" id="pricing">
+    <section class="free" id="free">
       <div class="wrap">
-        <p class="eyebrow">Pricing</p>
-        <h2>One price. Then it's yours.</h2>
-        <p class="lede" id="price-note">Perpetual license on your hardware. Nothing renews.</p>
-
-        <p class="test-note" id="test-note">Test control: pricing A/B. Variant shows only this page's price.</p>
-        <div class="price-switch" role="radiogroup" aria-label="Pricing variant A/B test">
-          <button class="price-tab is-active" data-variant="a">Variant A: $79 anchor</button>
-          <button class="price-tab" data-variant="b">Variant B: $149 anchor</button>
-        </div>
-
-        <div class="price-card">
-          <p class="price-kicker" id="price-tier">Personal: perpetual license, one device</p>
-          <p class="price-value"><span id="price-amount">$79</span><span class="price-unit"> one time</span></p>
-          <ul class="price-list">
-            <li>Auto-selected model bundle up to the 24 GB tier</li>
-            <li>Full persistent memory and proactive agent</li>
-            <li>Phone and web access on one device</li>
-            <li>All over-the-air model updates at this level</li>
-          </ul>
-          <button class="btn btn-primary price-cta" data-plan="personal">Choose this plan</button>
-          <p class="fine">Free tier includes install, base assistant, and basic memory. No card required.</p>
-        </div>
+        <p class="eyebrow">Free to install</p>
+        <h2>Install it on a computer you own.</h2>
+        <p class="lede">The assistant works out of the box: setup wizard, phone and web access, persistent memory, and over-the-air model updates. A perpetual license keeps everything working offline, with nothing to renew. The free-to-install sentence is the whole financial claim on this page; the product asks nothing at first run.</p>
 
         <div class="email-capture" id="capture">
-          <h3>Want the first public build?</h3>
-          <p>Leave your email and we will email you when the public build is ready. No list spam, no selling the address.</p>
+          <h3>Want to know when the public build is ready?</h3>
+          <p>Leave your email and we will email you once. No list spam, no selling the address.</p>
           <form id="capture-form" novalidate>
             <input type="email" id="capture-email" name="email" placeholder="you@example.com" autocomplete="email" required>
             <button type="submit" class="btn btn-primary">Notify me</button>
@@ -129,15 +112,28 @@
       </div>
     </section>
 
+    <section class="compare" id="privacy">
+      <div class="wrap">
+        <p class="eyebrow">Privacy</p>
+        <h2>The promise, stated concretely.</h2>
+        <ul class="compare-list">
+          <li><strong>One folder.</strong> Conversations, facts, the index built from your folders, settings and logs live under <code>~/.steward</code> by default, owner-only. Move it with <code>STEWARD_HOME</code>.</li>
+          <li><strong>No telemetry.</strong> The web client makes zero external requests; the phone app talks only to the host you pair it with, over your LAN.</li>
+          <li><strong>Two outbound calls total.</strong> Downloading a model the first time, and a signed update check. Nothing else ever leaves the machine.</li>
+          <li><strong>Delete it all.</strong> <code>rm -rf ~/.steward</code>. The full statement is in docs/PRIVACY.md.</li>
+        </ul>
+      </div>
+    </section>
+
     <section class="compare" id="compare">
       <div class="wrap">
         <p class="eyebrow">Why Steward</p>
         <h2>Same ownership story. None of the markup.</h2>
         <ul class="compare-list">
-          <li><strong>No $3,499 one-use computer.</strong> Ghost Core sells the box to sell the software. Steward runs on the GPU or mini PC you already own.</li>
-          <li><strong>No $200/month.</strong> A one-time $79 to $149 outlives two months of a cloud AI subscription, and the models improve with free OTA updates.</li>
-          <li><strong>No DRAM supercycle exposure.</strong> You do not buy memory from us. You already paid for it.</li>
-          <li><strong>Honest about memory.</strong> An 80B MoE needs about 48 GB. We serve it on a machine that has it, not on a 24 GB box that does not.</li>
+          <li><strong>No one-use hardware markup.</strong> Some vendors sell the box to sell the software. Steward runs on the computer you already own.</li>
+          <li><strong>No monthly subscription.</strong> A perpetual license keeps working offline, forever, with no renewal and no phone-home.</li>
+          <li><strong>No DRAM supercycle exposure.</strong> You already own the memory. No one needs to sell it to you.</li>
+          <li><strong>Honest about memory.</strong> The wizard measures your machine and tells you plainly what it will run, instead of promising more than the box has.</li>
         </ul>
       </div>
     </section>
@@ -146,7 +142,7 @@
   <footer class="site-footer">
     <div class="wrap footer-inner">
       <span>Steward. Intelligence you own.</span>
-      <span class="footer-meta">Private project. MIT source. Not affiliated with any hardware vendor.</span>
+      <span class="footer-meta">Open source. MIT license. Not affiliated with any hardware vendor.</span>
     </div>
   </footer>
 

@@ -112,6 +112,25 @@ verification, licensing, or any trust boundary must prove refusal paths
 - Never fabricate a number, a hash, or a result. If a check was not run,
   say it was not run. "Measured" means the output is quoted from a real run.
 
+## Community expectations
+
+This project is maintained by one person, in the evenings, alongside a day
+job. The honest expectation is:
+
+- Issues are read as they arrive, but a reply or a fix can take days. If
+  your report is urgent, it is a security issue (see SECURITY.md) or it is
+  not actually urgent. There is no paid support and no SLA.
+- The maintainer triages issues and Discussions together, usually once a
+  week. Triage means labeling, merging duplicates, and saying "wontfix" with
+  a reason, not promising dates.
+- The fastest paths to a merged change are the `good first issue` candidates
+  in docs/GOOD-FIRST-ISSUES.md and any `help wanted` label. A pull request
+  that changes code ships with a test; one that changes copy carries no em
+  dash and no invented claim.
+- Discussions is the surface for conversation and long-form ideas; issues
+  are for tracked work. The maintainer closes question issues with a pointer
+  to Discussions or a doc.
+
 ## Code of conduct
 
 Participating means agreeing to the Contributor Covenant, see
