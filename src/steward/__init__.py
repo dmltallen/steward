@@ -15,6 +15,6 @@ try:
         __version__ = _pkg_version("steward")
     except PackageNotFoundError:  # source tree or a frozen bundle
         # Kept equal to pyproject.toml; test_version_single_source enforces it.
-        __version__ = "1.3.2"
+        __version__ = "1.3.3"
 except Exception:  # noqa: BLE001 - never fail an import over a version string
     __version__ = "0.0.0+unknown"

@@ -1,5 +1,16 @@
 # Steward Changelog
 
+## v1.3.3 (2026-11-19, update source correction)
+
+Supersedes v1.3.2. The `/releases/latest/download/update.json` shortcut answers
+302 for a browser-style client but returns 404 to a plain Python urllib fetch,
+which is what the daemon uses, so a stock install could not read the manifest.
+The default source is now
+`https://raw.githubusercontent.com/dmltallen/steward/master/releases/update.json`,
+which is served directly with no redirect. Verified: the shipped binary reads
+its own manifest over the public internet with no configuration.
+
+
 ## v1.3.2 (2026-11-19, public release correction)
 
 Supersedes v1.3.1. That build predated its own version bump, so the frozen
