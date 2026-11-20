@@ -123,6 +123,18 @@ def _gitea_base(root: Path, remote: str) -> str:
     return base
 
 
+def _api_base(root: Path, remote: str) -> str:
+    """The scheme://host:port API root for the remote (no repo path).
+
+    _gitea_base() returns the repo web base (http://host:port/<owner>/<repo>),
+    which is what asset download URLs need. The REST API instead sits at
+    http://host:port/api/v1/repos/<owner>/<repo>, so the repo path must be
+    dropped here and re-appended as part of the /api/v1/repos prefix.
+    """
+    parsed = urllib.parse.urlparse(_gitea_base(root, remote))
+    return "%s://%s" % (parsed.scheme, parsed.netloc)
+
+
 def _api_token(host_port: str) -> str:
     """Read the bearer token for host:port from ~/.git-credentials.
 
@@ -304,11 +316,10 @@ class Release:
 
         if not self.dry_run:
             token = self._api_token_or_die()
-            base = _gitea_base(self.root, self.remote)
-            parsed = urllib.parse.urlparse(base)
+            parsed = urllib.parse.urlparse(_gitea_base(self.root, self.remote))
             status, body = _api(
                 "%s/api/v1/repos%s/releases/tags/%s"
-                % (base, parsed.path, self.tag), token)
+                % (_api_base(self.root, self.remote), parsed.path, self.tag), token)
             if status == 200:
                 _say("warn gitea already hosts a release tagged %s; publish will "
                      "refuse at the API until that release is removed" % self.tag)
@@ -541,7 +552,7 @@ def publish(rel: Release, artifacts: dict, manifest: Path) -> None:
     parsed = urllib.parse.urlparse(base)
     repo_path = parsed.path
     token = rel._api_token_or_die()
-    api = "%s/api/v1/repos%s" % (base, repo_path)
+    api = "%s/api/v1/repos%s" % (_api_base(rel.root, rel.remote), repo_path)
 
     status, resp = _api("%s/releases" % api, token, data={
         "tag_name": rel.tag,
