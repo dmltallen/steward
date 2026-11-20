@@ -61,11 +61,12 @@ M2.
 `sha256sum.txt` generated last and uploaded last with `--clobber`, a required-artifact list
 checked before the release is announced, and releases created as drafts first. DECIDED.
 
-Hosting order: public GitHub Releases is the primary artifact and manifest source. The NAS
-Gitea stays the development source of truth, mirrored one-way to GitHub on every master push,
-so an account or hosting problem never takes the working repository away. `DEFAULT_OTA_URL`
-must switch to the public manifest URL in the same commit that makes the repository public, or
-every installed 1.2.0 box keeps pointing at a private URL that returns 404.
+Hosting order: public GitHub Releases is the primary artifact and manifest source. DECIDED and
+in force (Don, 2026-11-20): GitHub is now canonical. The repository lives at
+https://github.com/dmltallen/steward, its history was sanitized before publication, and the NAS
+Gitea is a mirror kept for local development speed. `DEFAULT_OTA_URL` points at the raw master
+manifest, and a published release is only real once an anonymous fetch of its manifest and its
+assets both return 200.
 
 ## 4. Release engineering
 
