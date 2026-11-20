@@ -16,10 +16,10 @@ re-download and hash of the published artifact, never guessed.
   manifest", which carries `releases/update.json` on master.
 - Master at cut time: `ab1451f`, pushed; the release commit `141691f`
   landed on master after publish, then this evidence doc as `3ca5325`
-  and a doc-only wording fix as `70d39da`. Master HEAD ==
-  gitea/master == `70d39da` (tested `git ls-remote gitea
-  refs/heads/master` at write time), and the tag stays on the release
-  commit `141691f`.
+  with doc-only wording fixes `70d39da` and `e344d8e`. Master HEAD ==
+  gitea/master == `e344d8e` (verified with `git ls-remote gitea
+  refs/heads/master`), and the tag stays on the release commit
+  `141691f`.
 - Version bump commit: `de234d1` (pyproject.toml and
   `src/steward/__init__.py` to 1.3.0, v1.3.0 CHANGELOG section, README,
   QUICKSTART, ARCHITECTURE 1.7, ROADMAP 1.3, WAVE-STATE, homebrew and
