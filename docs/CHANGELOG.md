@@ -1,5 +1,79 @@
 # Steward Changelog
 
+## v1.3.0 (released 2026-11-19)
+
+Tools, citations and the release path come out of the tree: the chat loop
+runs real tools behind per-step approvals, retrieval answers cite their
+sources in chat with structured sources rendered in the web and phone
+clients, the paid feature packs unlock behind an offline signed seam,
+updates become install-channel-aware, and a one-command tool cuts the
+whole release.
+
+- **Tool loop in chat** (`f5f9fb5`, F8). The daemon chat path runs the
+  tool loop: a turn may call `fs.*`, `calendar.read`, `shell.run`,
+  `http.fetch` and `browser_agent` tools, streaming `tool_call`,
+  `approval_required` and `tool_result` events; every write, exec and
+  network call waits on an Approve/Deny prompt with a live countdown and
+  a denied step is described in plain language.
+- **Tool UI in web and phone** (`d89cad2`, F8). The web client and the
+  phone render every tool step inline in the same turn (tool, risk,
+  one-line summary, spinner), show the approve prompt with countdown and
+  a settled ok/failed line, and have no toggle to switch it off.
+- **Citations in chat with structured sources** (`006a2d5`, `78b1656`,
+  `d5f2a90`, F4). The daemon grounds a chat turn in the data-root
+  retrieval index when documents exist; numbered sources ride the system
+  prompt, a reply that cites `[n]` gets a `Sources:` block appended, and
+  the clients stream the structured sources event. Fail-closed: no
+  index, no documents, a backend error or nothing above the floor
+  leaves a plain assistant turn.
+- **Retrieval containment** (`240cbe3`, `9ed0146`). The sources path can
+  never emit or read a path outside the configured retrieval roots;
+  hits are dropped at the grounding step and again at the sources step
+  unless their resolved path sits inside a root. Locked by five
+  containment tests in `tests/test_citation_containment.py` plus
+  `tests/test_chat_sources.py` pinning `retrieval_roots`.
+- **Paid feature-pack seam** (`fd77d8c`). Offline perpetual feature
+  packs unlock behind the same Ed25519 vendor key as licenses (`packs:
+  browser_agent v1 (perpetual)`); a corrupt or unreadable entitlement
+  now resolves to the free tier instead of crashing (`240cbe3`, locked
+  by six tests in `tests/test_license.py`).
+- **One-command release tool** (`fa551f1`). `tools/cut_release.py`
+  runs the full release in eight stages (preflight, suite, native
+  build, artifacts and checksums, signed manifest, publish with
+  re-download hash compare, commit and tag, push) and refuses cleanly on
+  a dirty tree, a version mismatch, a missing CHANGELOG section or an
+  existing tag. The runbook and rollback story are in docs/RELEASE.md.
+- **GitHub Actions matrix** (`edd1fdd`). Native release matrix for
+  linux amd64/arm64, Windows and macOS plus the winget and Homebrew
+  templates. Every non-Linux leg is marked UNVERIFIED / NOT MEASURED /
+  template only (see docs/BUILD-MATRIX.md); only the Linux arm64 build
+  is measured.
+- **Install-channel-aware updates** (`2284851`). The daemon detects who
+  owns the installed binary (apt, brew, winget, manual, source,
+  unknown) and refuses a self-update on a package-managed install,
+  reporting the exact package-manager command instead; no dead Update
+  button (`app.available: false` on a managed channel).
+- **OTA hardening** (`efabe95`). A tampered or corrupt manifest is
+  refused with one readable line (no traceback), CLI and daemon resolve
+  the update source identically, and the in-repo default source is
+  documented honestly (404 for anonymous on the private gitea until
+  hosting is made public, recorded in docs/RELEASE.md).
+- **Public-repo bootstrap** (`acd00b0`). Trust surface for a public
+  mirror: issue templates, SECURITY.md content, and pinned signed
+  checksums, ready for the M2 public repository switch.
+
+Proof on the merged tree (docs/REVIEW-1.3.0.md and this release card):
+
+- Full Python suite on the final tree: 422 passed (quoted in the
+  release evidence, docs/RELEASE-1.3.0.md); mobile typecheck clean and
+  50/50 mobile tests at the same tip.
+- The four review findings (2 docs at `7ffab1f`, retrieval containment
+  and corrupt-license fallback at `240cbe3` + `9ed0146`) are fixed on
+  master and each is locked by tests; verdict: no blocking findings.
+- The update check against the published 1.3.0 manifest is quoted in
+  docs/RELEASE-1.3.0.md; the anonymous leg still 404s on the private
+  repo (see docs/PUBLIC-LAUNCH-PLAN.md, M2 makes it public).
+
 ## v1.2.0 (2026-10-28, released 2026-11-19)
 
 Updates now reach the person, not just the daemon: the web client and the

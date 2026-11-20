@@ -110,9 +110,11 @@ daemon + qwen3:8b:
 
 ## What remains open
 
-- No version bump, no tag, no release: the release card owns that.
-  `pyproject.toml` is untouched at 1.2.0; gitea tags unchanged (v1.0.0,
-  v1.0.1, v1.2.0); no gitea release created.
+- Version bump, tag and release now done by the release card (t_935b6364):
+  `pyproject.toml` and `src/steward/__init__.py` moved to 1.3.0, the v1.3.0
+  CHANGELOG section landed, and `tools/cut_release.py --version 1.3.0` cut
+  the release end to end. Tag `v1.3.0` and the release evidence are
+  recorded in docs/RELEASE-1.3.0.md.
 - Windows / macOS legs of the build matrix and both package templates are
   written but NOT MEASURED on this host (no such build hosts); the freeze
   build here is Linux arm64 only. This is stated per-file in
@@ -124,7 +126,6 @@ daemon + qwen3:8b:
   policy.
 - `releases/update.json` on master still points at the private gitea raw
   path; anonymous clients get a 404 until hosting is made public (separate
-  decision, recorded in docs/RELEASE.md).
-- The next card in the wave is the release card; it may now run
-  `tools/cut_release.py` against this master, whose dry-run path and the
-  signed-manifest contract are already verified.
+  decision, recorded in docs/RELEASE.md). The 1.3.0 manifest is published
+  at that path and verified by the release card with repo-access
+  credentials; the anonymous leg is NOT MEASURED.

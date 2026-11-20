@@ -1,7 +1,9 @@
 # Steward Roadmap
 
-**Version:** 1.2, 2026-10-26 (v1.0 contents finalized, and what moved to
-1.1 is explicit)
+**Version:** 1.3, 2026-11-19 (v1.0 contents finalized, what moved to 1.1 is
+explicit, and v1.3.0 released: tools in chat, citations with structured
+sources, offline feature packs, one-command release tool, CI matrix,
+install-channel-aware updates, OTA hardening, public-repo bootstrap)
 
 ## v0.1 Prototype: DONE (Oct 10 2026)
 

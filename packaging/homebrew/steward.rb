@@ -7,7 +7,7 @@
 # separate step that is also NOT MEASURED here. macOS refuses unsigned
 # installs, so notarization is the gate before this cask can ever be real.
 cask "steward" do
-  version "1.2.0" # shipper: set to the released version
+  version "1.3.0" # shipper: set to the released version
 
   # NEVER add `auto_updates true` here.
   #

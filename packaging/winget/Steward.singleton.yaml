@@ -27,7 +27,7 @@
 # per-user and shims "steward" onto PATH, which is what the documented
 # `winget install Steward` promise needs.
 PackageIdentifier: Steward.Steward # shipper: must be unique on the community repo
-PackageVersion: 1.2.0 # shipper: set to the released version
+PackageVersion: 1.3.0 # shipper: set to the released version
 PackageLocale: en-US
 Publisher: Steward Project # shipper: must match the Microsoft account
 PublisherUrl: https://github.com/dmltallen/steward # shipper: replace with a public URL

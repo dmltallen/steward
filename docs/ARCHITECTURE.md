@@ -1,12 +1,46 @@
 # Steward Architecture
 
-**Version:** 1.6, 2026-10-28 (1.6 adds the update UI: the web and mobile
+**Version:** 1.7, 2026-11-19 (1.7 adds the 1.3.0 wave: the chat loop runs
+tools behind per-step approvals, chat citations stream structured sources
+rendered in web and phone, offline feature packs unlock behind a signed
+seam, the one-command release tool cuts the release, updates become
+install-channel-aware, and the release matrix and public-repo bootstrapping
+land; 1.6 added the update UI: the web and mobile
 clients check-and-notify on open, apply with real progress, and the daemon
 re-execs the applied build in place so the client reconnects; 1.5 added the
 schema-v2 OTA envelope that carries the app, the /v1/update routes, and the
 daemon startup check; 1.4 added the runtime seam, pairing auth, retrieval
 index and tool connectors; 1.3 closed the serving-backend question with the
 vLLM benchmark on U1, Ollama stays v1)
+
+## What changed in 1.7
+
+The 1.3.0 wave makes the tools, citations and the release path real.
+
+- **Tool loop in chat.** The daemon chat path runs the tool loop and
+  streams `tool_call`, `approval_required` and `tool_result` events; every
+  write, exec and network call waits on a human Approve/Deny prompt
+  (live countdown, expired prompts read "expired, ask again"), and a
+  denied or failed step is described in plain language. The web client
+  and the phone render every step inline, and there is no toggle to turn
+  approval off.
+- **Citations with structured sources.** Chat turns are grounded in the
+  data-root retrieval index when documents exist; a reply that cites
+  `[n]` gets a `Sources:` block, and the structured sources payload
+  streams to the clients. Retrieval containment keeps the sources path
+  inside the configured roots (fail-closed on no index, no documents,
+  or a backend error).
+- **Feature-pack seam.** Offline perpetual feature packs unlock behind
+  the same Ed25519 vendor key as licenses, and the one release tool cuts
+  the whole release (preflight, suite, build, artifacts, signed
+  manifest, publish with re-download hash compare, commit, tag, push).
+- **Install-channel-aware updates.** The daemon detects who owns the
+  installed binary (apt, brew, winget, manual, source, unknown) and
+  refuses to self-replace a package-managed install, returning the exact
+  package-manager command instead.
+- **Release matrix and public-repo bootstrapping.** Native build matrix
+  (linux arm64 measured; linux amd64, Windows and macOS are template
+  only) and the trust surface for the M2 public repository switch.
 
 ## What changed in 1.6
 
