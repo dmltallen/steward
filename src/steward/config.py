@@ -53,7 +53,7 @@ DEFAULT_OLLAMA_URL = "http://localhost:11434"
 # master (it commits releases/update.json as part of a release). A public
 # GitHub mirror changes the URL, and the new default is this one constant.
 DEFAULT_OTA_URL = (
-    "https://github.com/dmltallen/steward/raw/branch/master/releases/update.json"
+    "https://github.com/dmltallen/steward/releases/latest/download/update.json"
 )
 
 _PORT_ENV = "STEWARD_PORT"

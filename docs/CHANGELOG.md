@@ -1,5 +1,20 @@
 # Steward Changelog
 
+## v1.3.1 (2026-11-19, first public release)
+
+The first release published from the public repository. The code is identical to
+v1.3.0; this release exists because the repository history was sanitized before
+publication (no machine paths, no LAN addresses, no personal author emails), and
+the default update source now points at the public release manifest instead of a
+private host, so the shipped binary differs by those strings only.
+
+- Default update source: `https://github.com/dmltallen/steward/releases/latest/download/update.json`.
+- Same feature set as v1.3.0: tools reachable from chat with inline approvals,
+  retrieval-grounded answers with a sources payload, the offline paid
+  feature-pack entitlement seam, one-command release tooling and the
+  cross-platform CI matrix.
+
+
 ## v1.3.0 (released 2026-11-19)
 
 Tools, citations and the release path come out of the tree: the chat loop
