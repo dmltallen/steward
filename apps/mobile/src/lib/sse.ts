@@ -15,15 +15,20 @@
  *   data: {"event":"tool_call","id":"...","tool":"...","args":{...},"risk":"..."}
  *   data: {"event":"approval_required","id":"...","tool":"...","args":{...},"risk":"...","expires_at":"..."}
  *   data: {"event":"tool_result","id":"...","ok":true,"summary":"...","ms":123}
+ *   data: {"event":"sources","sources":[{"n":1,"path":"...","start_line":3,"end_line":19,"snippet":"..."}]}
  *   data: [DONE]
+ *
+ * The sources frame arrives after the reply deltas and before [DONE]; it is
+ * the retrieval-grounded source list behind the answer (F4 wire).
  *
  * Pure module: no React Native or Expo imports (Node-testable).
  */
 
-import type { ToolStreamEvent } from './types';
+import type { SourceRef, ToolStreamEvent } from './types';
 
 export type SseMessage =
   | { kind: 'delta'; delta: string }
+  | { kind: 'sources'; sources: SourceRef[] }
   | { kind: 'done' }
   | { kind: 'error'; message: string }
   | { kind: 'tool'; event: ToolStreamEvent }
@@ -55,6 +60,9 @@ export function parseSseEvent(raw: string): SseMessage {
     if (typeof parsed.error === 'string') {
       return { kind: 'error', message: parsed.error };
     }
+    if (parsed.event === 'sources') {
+      return { kind: 'sources', sources: parseSources(parsed.sources) };
+    }
     const tool = parseToolEvent(parsed);
     if (tool) {
       return { kind: 'tool', event: tool };
@@ -71,6 +79,30 @@ function asString(v: unknown): string {
 
 function asRecord(v: unknown): Record<string, unknown> {
   return v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : {};
+}
+
+function asNumberOrNull(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/** Tolerantly validate an SSE sources payload into SourceRef rows. Rows that
+ * are not objects are dropped; a malformed payload yields an empty list,
+ * never a crash. */
+function parseSources(value: unknown): SourceRef[] {
+  if (!Array.isArray(value)) return [];
+  const out: SourceRef[] = [];
+  for (const row of value) {
+    if (row === null || typeof row !== 'object') continue;
+    const r = row as Record<string, unknown>;
+    out.push({
+      n: typeof r.n === 'number' ? r.n : 0,
+      path: asString(r.path),
+      start_line: asNumberOrNull(r.start_line),
+      end_line: asNumberOrNull(r.end_line),
+      snippet: asString(r.snippet),
+    });
+  }
+  return out;
 }
 
 /** Map a JSON frame carrying an event name onto the tool stream event. */
@@ -115,6 +147,8 @@ export type SseConsumer = {
   onError?: (message: string) => void;
   /** Fired for tool_call / approval_required / tool_result frames. */
   onEvent?: (event: ToolStreamEvent) => void;
+  /** Fired for the final sources payload of a grounded turn. */
+  onSources?: (sources: SourceRef[]) => void;
 };
 
 type NextChunk = () => Promise<Uint8Array | ArrayBuffer | null>;
@@ -180,6 +214,8 @@ export async function streamSse(
         consumer.onError?.(msg.message);
       } else if (msg.kind === 'tool') {
         consumer.onEvent?.(msg.event);
+      } else if (msg.kind === 'sources') {
+        consumer.onSources?.(msg.sources);
       }
     }
   }

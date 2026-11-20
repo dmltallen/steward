@@ -10,6 +10,7 @@ import { FakeDaemon, MapSecureStore, MapStorage } from './helpers';
 import { ConversationCache, MAX_CACHED_MESSAGES } from '../src/lib/cache';
 import { StewardClient } from '../src/lib/client';
 import { SessionManager } from '../src/lib/session';
+import type { SourceRef } from '../src/lib/types';
 
 test('offline cache: last 20 messages are stored, restored with no network', async () => {
   const storage = new MapStorage();
@@ -76,6 +77,72 @@ test('offline cache: last 20 messages are stored, restored with no network', asy
   // The cache never made a single successful network call in phase 2: the
   // daemon had already stopped before the offline client was created.
   assert.ok(true, 'no network needed: list, latest and open all resolved from storage');
+});
+
+test('offline cache: retrieval-grounded sources survive into the cached message', async () => {
+  // This test FAILS if the sources are dropped from the cached message: the
+  // whole point of caching them is that a cached grounded answer still shows
+  // where it came from, with zero network.
+  const storage = new MapStorage();
+  const cache = new ConversationCache(storage);
+  const sources: SourceRef[] = [
+    { n: 1, path: '/tmp/notes/stellar-drive.md', start_line: 3, end_line: 19, snippet: 'The Stellar Drive desktop unit costs $1,299.' },
+    { n: 2, path: '/tmp/notes/warranty.md', start_line: 1, end_line: 2, snippet: 'Five year warranty.' },
+  ];
+  const daemon = await FakeDaemon.start({
+    token: 'tok-real',
+    deltas: ['The drive costs $1,299 [1] on a five year warranty [2].'],
+    sources,
+  });
+  try {
+    const secure = new MapSecureStore('tok-real');
+    const sessions = new SessionManager(storage, secure);
+    await sessions.set({
+      host: daemon.host,
+      port: daemon.port,
+      token: 'tok-real',
+      device: 'p',
+      expiresAt: '',
+      pairedAt: '',
+    });
+    const client = StewardClient.fromSession((await sessions.restore())!, cache);
+
+    // Stream a grounded turn exactly like the chat screen does; the sources
+    // frame arrives from the daemon before [DONE].
+    const received: SourceRef[][] = [];
+    const reply = await client.streamChat({
+      history: [],
+      text: 'How much does the drive cost?',
+      conversationId: null,
+      onDelta: () => {},
+      onSources: (s) => received.push(s),
+    });
+    assert.equal(reply, 'The drive costs $1,299 [1] on a five year warranty [2].');
+    assert.equal(received.length, 1, 'expected exactly one sources frame');
+    assert.deepEqual(received[0], sources);
+
+    // Persist the streamed turn into the offline cache the way the chat
+    // screen does: the assistant message carries the sources it received.
+    await client.cacheConversation(
+      client.buildCachedConversation({
+        id: 11,
+        title: 'Sources test',
+        createdAt: '2026-10-26T00:00:00Z',
+        messages: [
+          { role: 'user', content: 'How much does the drive cost?' },
+          { role: 'assistant', content: reply, sources: received[0] },
+        ],
+      }),
+    );
+
+    const saved = await cache.get(11);
+    if (!saved) throw new Error('expected cached conversation 11');
+    const assistant = saved.messages.find((m) => m.role === 'assistant');
+    if (!assistant) throw new Error('assistant message missing from the cache');
+    assert.deepEqual(assistant.sources, sources, 'sources were dropped from the cached message');
+  } finally {
+    await daemon.stop();
+  }
 });
 
 test('offline cache: empty cache and dead daemon yields an empty recovery, no throw', async () => {

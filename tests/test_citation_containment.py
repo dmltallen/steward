@@ -44,10 +44,17 @@ def _ctx(index, roots):
 
 
 def _grounded(messages, reply, index, roots):
+    """Run one chat turn; returns (reply text, sources payload, handler).
+
+    Since the cite-wire merge a grounded turn returns its sources as a
+    structured list rather than appending a text block, so the containment
+    assertion is on that payload.
+    """
     ctx = _ctx(index, roots)
     handler = _StubHandler(ctx)
     handler.ctx.runtime = ScriptedRuntime([reply])
-    return handler._run_tool_loop(messages, emit=None), handler
+    final, sources = handler._run_tool_loop(messages, emit=None)
+    return final, sources, handler
 
 
 def test_hit_outside_configured_root_is_not_grounded(tmp_path):
@@ -59,10 +66,11 @@ def test_hit_outside_configured_root_is_not_grounded(tmp_path):
 
     index = FakeIndex(hits=[make_hit(outside, "CLASSIFIED PLAN: launch the missile at noon",
                                     score=0.99)])
-    final, handler = _grounded([{"role": "user", "content": "what is the plan?"}],
-                               "The plan is classified [1].", index, [str(corpus)])
+    final, sources, _handler = _grounded(
+        [{"role": "user", "content": "what is the plan?"}],
+        "The plan is classified [1].", index, [str(corpus)])
     assert final == "The plan is classified [1].", "turn must stay ungrounded"
-    assert "Sources:" not in final
+    assert sources == [], "a stale hit must never be emitted as a source"
     assert str(outside) not in final
 
 
@@ -74,10 +82,11 @@ def test_hit_inside_configured_root_still_grounds(tmp_path):
 
     index = FakeIndex(hits=[make_hit(inside, "The Stellar Drive costs 1299 dollars.",
                                     score=0.99)])
-    final, _handler = _grounded([{"role": "user", "content": "how much is the drive?"}],
-                               "It costs 1299 dollars [1].", index, [str(corpus)])
-    assert "Sources:" in final
-    assert str(inside) in final
+    final, sources, _handler = _grounded(
+        [{"role": "user", "content": "how much is the drive?"}],
+        "It costs 1299 dollars [1].", index, [str(corpus)])
+    assert final == "It costs 1299 dollars [1]."
+    assert [s["path"] for s in sources] == [str(inside)]
 
 
 def test_empty_root_list_grounds_nothing(tmp_path):
@@ -85,9 +94,10 @@ def test_empty_root_list_grounds_nothing(tmp_path):
     inside.parent.mkdir()
     inside.write_text("content worth citing\n")
     index = FakeIndex(hits=[make_hit(inside, "content worth citing", score=0.99)])
-    final, _handler = _grounded([{"role": "user", "content": "q"}],
-                               "answer [1]", index, [])
+    final, sources, _handler = _grounded([{"role": "user", "content": "q"}],
+                                         "answer [1]", index, [])
     assert final == "answer [1]"
+    assert sources == []
 
 
 def test_symlink_escaping_the_root_is_dropped(tmp_path):
@@ -103,10 +113,10 @@ def test_symlink_escaping_the_root_is_dropped(tmp_path):
 
     index = FakeIndex(hits=[make_hit(link, "CLASSIFIED PLAN: launch the missile at noon",
                                     score=0.99)])
-    final, _handler = _grounded([{"role": "user", "content": "read it"}],
-                               "The plan is [1].", index, [str(corpus)])
+    final, sources, _handler = _grounded([{"role": "user", "content": "read it"}],
+                                         "The plan is [1].", index, [str(corpus)])
     assert final == "The plan is [1]."
-    assert "Sources:" not in final
+    assert sources == [], "a symlinked escape must never be emitted"
 
 
 def test_sources_step_drops_non_contained_selection(tmp_path):
@@ -116,5 +126,5 @@ def test_sources_step_drops_non_contained_selection(tmp_path):
     outside.write_text("CLASSIFIED PLAN\n")
     handler = _StubHandler(_ctx(FakeIndex(), [str(corpus)]))
     selected = [make_hit(outside, "CLASSIFIED PLAN", score=0.99)]
-    payload = handler._append_chat_sources("answer [1].", selected)
-    assert payload == "answer [1].", "a non-contained hit must never be echoed"
+    payload = handler._resolve_chat_sources("answer [1].", selected)
+    assert payload == [], "a non-contained hit must never be emitted as a source"

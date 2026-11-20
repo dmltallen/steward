@@ -31,6 +31,7 @@ import type {
   HealthInfo,
   LicenseReport,
   Session,
+  SourceRef,
   ToolStreamEvent,
   UpdateCheckReport,
 } from './types';
@@ -159,7 +160,7 @@ export class StewardClient {
     id: number;
     title: string;
     createdAt: string;
-    messages: { role: string; content: string }[];
+    messages: { role: string; content: string; sources?: SourceRef[] }[];
   }): Conversation {
     return toCachedConversation(args.id, args.title, args.createdAt, args.messages);
   }
@@ -179,6 +180,7 @@ export class StewardClient {
     onDone?: () => void;
     onError?: (message: string) => void;
     onEvent?: (event: ToolStreamEvent) => void;
+    onSources?: (sources: SourceRef[]) => void;
   }): Promise<string> {
     return streamChatAuthed({
       baseUrl: this.baseUrl,

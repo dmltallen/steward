@@ -105,16 +105,35 @@ else:
     prompt = build_prompt(question, selected)
     # send prompt to the model; the reply cites each claim as [n]
     result = extract_citations(reply, selected)
-    sources = render_sources(result["used"])  # append to the reply
+    sources = render_sources(result["used"])  # one markdown line per used source
     for n in result["dropped"]:
         log("dropped out-of-range citation marker [%d]" % n)
 ```
 
 The daemon wiring that runs this end to end (search, prompt, model call,
-resolution, rendering) lives in the chat path of `src/steward/server/daemon.py`
-(`_ground_chat` + `_append_chat_sources` in the tool-loop turn): a `/v1/chat`
-or `/chat` turn is grounded in the data-root retrieval index when it has
-documents, and a reply that cites `[n]` gets a `Sources:` block appended.
-It is fail-closed: no index, no documents, a backend error, or nothing above
-the caller-side score floor leaves the turn as a plain assistant chat.
+resolution, delivery) lives in the chat path of `src/steward/server/daemon.py`
+(`_ground_chat` + `_resolve_chat_sources` in the tool-loop turn): a `/v1/chat`
+turn is grounded in the data-root retrieval index when the request opts in
+(request field `cite`, default on) and the index has documents. The resolved
+citations arrive on the chat stream as a final SSE payload after the reply
+text and before `[DONE]`:
+
+```
+data: {"event":"sources","sources":[{"n":1,"path":"...","start_line":3,"end_line":19,"snippet":"..."}]}
+```
+
+and as a `sources` array in the `/chat` shim reply object. The reply text
+itself carries only the `[n]` markers the model used; the web and phone
+clients render the compact `Sources` disclosure from that payload, and the
+phone stores it with the message so a cached answer still shows where it came
+from.
+
+When retrieval returns nothing (documents exist but nothing scores above the
+caller-side floor), the turn is grounded with the honest no-coverage
+instruction and the payload carries an empty list; there is never a
+fabricated source. It is fail-closed: no index, no documents, a backend
+error, or the request opting out leaves the turn as a plain assistant chat
+with an empty sources payload. The `cite` request field is the opt-in seam
+for a future gate on `steward.features.enabled("retrieval", ...)`: disabling
+it per turn is a boolean the clients can already send.
 

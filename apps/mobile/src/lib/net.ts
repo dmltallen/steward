@@ -22,6 +22,7 @@ import type {
   ConversationSummary,
   HealthInfo,
   LicenseReport,
+  SourceRef,
   ToolStreamEvent,
   UpdateCheckReport,
 } from './types';
@@ -129,6 +130,8 @@ export type StreamChatParams = {
   onError?: (message: string) => void;
   /** Tool frames (tool_call, approval_required, tool_result) as they land. */
   onEvent?: (event: ToolStreamEvent) => void;
+  /** The final retrieval-grounded sources payload, before [DONE]. */
+  onSources?: (sources: SourceRef[]) => void;
 };
 
 /**
@@ -178,6 +181,9 @@ export async function streamChatAuthed(p: StreamChatParams): Promise<string> {
         onError: p.onError,
         onEvent: (evt) => {
           p.onEvent?.(evt);
+        },
+        onSources: (sources) => {
+          p.onSources?.(sources);
         },
       },
       p.signal,

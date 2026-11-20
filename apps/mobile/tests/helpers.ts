@@ -21,6 +21,15 @@ export type FakeDaemonInit = {
   /** Tool frames (tool_call / approval_required / tool_result) sent after the
    * deltas and before [DONE], each serialized as `data: {...}`. */
   toolFrames?: Record<string, unknown>[];
+  /** The retrieval-grounded sources payload (F4 wire) sent as a final
+   * `data: {"event":"sources","sources":[...]}` frame before [DONE]. */
+  sources?: {
+    n: number;
+    path: string;
+    start_line: number | null;
+    end_line: number | null;
+    snippet: string;
+  }[];
   streamDelayMs?: number; // delay between deltas (and after [DONE])
   conversations?: Record<string, unknown>[]; // GET /v1/conversations body
   keepStreamOpenMs?: number; // hold the stream open after [DONE] if set
@@ -35,6 +44,13 @@ type EffectiveInit = {
   token: string;
   deltas: string[];
   toolFrames: Record<string, unknown>[];
+  sources: {
+    n: number;
+    path: string;
+    start_line: number | null;
+    end_line: number | null;
+    snippet: string;
+  }[] | null;
   streamDelayMs: number;
   conversations: Record<string, unknown>[];
   keepStreamOpenMs: number | null;
@@ -76,6 +92,7 @@ export class FakeDaemon {
       token: TOKEN,
       deltas: DELTAS,
       toolFrames: [],
+      sources: null,
       streamDelayMs: 10,
       conversations: [],
       keepStreamOpenMs: null,
@@ -86,6 +103,7 @@ export class FakeDaemon {
       ...defaults,
       ...init,
       toolFrames: init.toolFrames ?? [],
+      sources: init.sources ?? null,
       conversations: init.conversations ?? [],
       updateCheck: init.updateCheck ?? null,
       trackUpdateChecks: init.trackUpdateChecks ?? false,
@@ -194,6 +212,12 @@ export class FakeDaemon {
       for (const frame of this.init.toolFrames) {
         if (stopped) return;
         res.write(`data: ${JSON.stringify(frame)}\n\n`);
+        await Promise.race([this.sleep(this.init.streamDelayMs), closed]);
+      }
+      if (this.init.sources && !stopped) {
+        res.write(
+          `data: ${JSON.stringify({ event: 'sources', sources: this.init.sources })}\n\n`,
+        );
         await Promise.race([this.sleep(this.init.streamDelayMs), closed]);
       }
       if (!stopped) {

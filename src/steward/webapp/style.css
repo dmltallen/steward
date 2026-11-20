@@ -280,6 +280,29 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .mdc pre code { background: none; padding: 0; }
 .mdc a { text-decoration: underline; }
 
+/* sources disclosure under an assistant reply (F4 wire) */
+.sources {
+  margin-top: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-small);
+  color: var(--ink-soft);
+}
+.sources > summary { cursor: pointer; font-weight: 700; color: var(--ink-soft); }
+.sources-list {
+  list-style: none; margin: var(--sp-2) 0 0; padding: 0;
+  display: flex; flex-direction: column; gap: var(--sp-1);
+}
+.sources-list li { margin: 0; padding: 0; }
+.sources-list details { border-top: 1px solid var(--line); padding-top: var(--sp-1); }
+.sources-list summary {
+  cursor: pointer; color: var(--accent-strong);
+  font-family: var(--font-mono); word-break: break-all;
+}
+.source-snippet { color: var(--ink-soft); margin: var(--sp-1) 0 0; }
+
 /* files */
 .index-dl { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-2) var(--sp-4); }
 @media (min-width: 600px) { .index-dl { grid-template-columns: repeat(4, 1fr); } }

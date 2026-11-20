@@ -11,6 +11,7 @@ import { ConversationCache } from '../src/lib/cache';
 import { StewardClient } from '../src/lib/client';
 import { SessionManager } from '../src/lib/session';
 import { streamSse, parseSseEvent } from '../src/lib/sse';
+import type { SourceRef } from '../src/lib/types';
 
 async function setup(init: Parameters<typeof FakeDaemon.start>[0]) {
   const daemon = await FakeDaemon.start(init);
@@ -131,6 +132,63 @@ test('sse: parseSseEvent handles delta, done, error and junk frames', () => {
   });
   assert.deepEqual(parseSseEvent('data: not-json'), { kind: 'unknown', raw: 'not-json' });
   assert.deepEqual(parseSseEvent(''), { kind: 'unknown', raw: '' });
+});
+
+test('sse: parseSseEvent parses the final sources payload of a grounded turn', () => {
+  assert.deepEqual(
+    parseSseEvent(
+      'data: {"event":"sources","sources":[{"n":1,"path":"/tmp/x.md","start_line":3,"end_line":19,"snippet":"the passage"}]}',
+    ),
+    {
+      kind: 'sources',
+      sources: [
+        { n: 1, path: '/tmp/x.md', start_line: 3, end_line: 19, snippet: 'the passage' },
+      ],
+    },
+  );
+  assert.deepEqual(parseSseEvent('data: {"event":"sources","sources":[]}'), {
+    kind: 'sources',
+    sources: [],
+  });
+  // Malformed rows are defaulted or dropped, never a crash.
+  assert.deepEqual(
+    parseSseEvent('data: {"event":"sources","sources":[{"n":"x"}, "junk", null]}'),
+    {
+      kind: 'sources',
+      sources: [{ n: 0, path: '', start_line: null, end_line: null, snippet: '' }],
+    },
+  );
+});
+
+test('sse: the sources frame reaches the client consumer, then done fires', async () => {
+  const { daemon, client } = await setup({
+    deltas: ['grounded answer [1].'],
+    sources: [{ n: 1, path: '/tmp/a.md', start_line: 3, end_line: 19, snippet: 'passage' }],
+  });
+  try {
+    let got: SourceRef[] = [];
+    let done = false;
+    const reply = await client.streamChat({
+      history: [],
+      text: 'q',
+      conversationId: null,
+      onDelta: () => {},
+      onSources: (s) => {
+        got = s;
+      },
+      onDone: () => {
+        done = true;
+      },
+    });
+    assert.equal(reply, 'grounded answer [1].');
+    if (got.length === 0) throw new Error('the sources frame was dropped by the client');
+    assert.equal(got.length, 1);
+    assert.equal(got[0].path, '/tmp/a.md');
+    assert.equal(got[0].start_line, 3);
+    assert.equal(done, true);
+  } finally {
+    await daemon.stop();
+  }
 });
 
 test('sse: streamSse over an in-flight Response consumes deltas before [DONE]', async () => {
