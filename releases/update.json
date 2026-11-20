@@ -6,8 +6,8 @@
       "notes_url": "https://github.com/dmltallen/steward/releases/tag/v1.3.1",
       "payloads": {
         "linux-aarch64": {
-          "sha256": "a3b36ade4b0d8913695844faad67231bb9ffc3a93dfea38460cc604410d762f6",
-          "size": 30584096,
+          "sha256": "51d5def59af8b2cd02d7ef9ffc1a57b9e846f46c21d3687c6738ae7a88e17154",
+          "size": 30584312,
           "url": "https://github.com/dmltallen/steward/releases/download/v1.3.1/steward-linux-arm64"
         }
       },
@@ -147,5 +147,5 @@
     "released": "2026-11-19",
     "version": "2026-11-19.2"
   },
-  "sig": "31342e9349d657cdb4d3b6d3590ff5c387bc94d2818fb8f00b928897075468827fe86f3e68b4e52452a73d8a59efa7058b75d1434b1847118f93d217acaa9507"
+  "sig": "3aeac9f2e08b8f99fadf6561066e8739e947fbd62d1a3423a875af2068b3ab6eb8baab7805877d5987d529a438b562734ab0eee084d106e4a9170f62c26f1d00"
 }
