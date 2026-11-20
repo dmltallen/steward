@@ -200,9 +200,9 @@ def test_check_and_apply_require_bearer(start_daemon):
 
 def test_check_reports_update_over_http(start_daemon, vendor, monkeypatch, env):
     key = ota_mod.platform_key(env["tmp"])
-    blob = make_app_binary(env["tmp"] / "steward-app.bin", "1.3.0")
+    blob = make_app_binary(env["tmp"] / "steward-app.bin", "1.4.0")
     doc = manifest_doc(vendor, app=app_block(
-        version="1.3.0", key=key, payload={"url": "steward-app.bin",
+        version="1.4.0", key=key, payload={"url": "steward-app.bin",
                                            "sha256": hashlib.sha256(blob).hexdigest(),
                                            "size": len(blob)}))
     server, base = serve({
@@ -215,7 +215,7 @@ def test_check_reports_update_over_http(start_daemon, vendor, monkeypatch, env):
     assert status == 200
     assert body["ok"] is True
     assert body["state"] == "ok"
-    assert body["app"]["latest_version"] == "1.3.0"
+    assert body["app"]["latest_version"] == "1.4.0"
     assert body["app"]["available"] is True
     assert body["catalog"]["latest_version"] == "c1"
     # The check is recorded on the daemon as well.

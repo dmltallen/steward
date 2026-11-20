@@ -476,15 +476,15 @@ def test_check_update_reports_app_and_catalog(tmp_path, vendor, monkeypatch):
     key = ota_mod.platform_key(tmp_path)
     blob = b"x" * 100
     doc = manifest_doc(vendor, version="c2", app=app_block(
-        version="1.3.0", key=key, payload={"url": "app.bin",
-                                           "sha256": hashlib.sha256(blob).hexdigest(),
-                                           "size": len(blob)}))
+        version="1.4.0", key=key, payload={"url": "app.bin",
+                                         "sha256": hashlib.sha256(blob).hexdigest(),
+                                         "size": len(blob)}))
     path = write_json(tmp_path, "manifest.json", doc)
     info = ota_mod.check_update(str(path), root=tmp_path)
     assert info["state"] == "ok"
     assert info["available"] is True
     assert info["catalog"]["latest_version"] == "c2"
-    assert info["app"]["latest_version"] == "1.3.0"
+    assert info["app"]["latest_version"] == "1.4.0"
     assert info["app"]["payload_for_platform"] is True
     assert info["app"]["available"] is True
 
