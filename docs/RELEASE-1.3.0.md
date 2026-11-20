@@ -14,8 +14,11 @@ re-download and hash of the published artifact, never guessed.
   `refs/tags/v1.3.0` and `gitea refs/tags/v1.3.0` both resolve here).
   This is the release commit "release: 1.3.0 publish the signed update
   manifest", which carries `releases/update.json` on master.
-- Master at cut time: `ab1451f`, pushed; the release commit `141691f` is
-  an ancestor of master and master HEAD == gitea/master == `141691f`.
+- Master at cut time: `ab1451f`, pushed; the release commit `141691f`
+  landed on master after publish, then this evidence doc as `3ca5325`.
+  Master HEAD == gitea/master == `3ca5325` (tested `git
+  ls-remote gitea refs/heads/master` at write time), and the tag stays
+  on the release commit `141691f`.
 - Version bump commit: `de234d1` (pyproject.toml and
   `src/steward/__init__.py` to 1.3.0, v1.3.0 CHANGELOG section, README,
   QUICKSTART, ARCHITECTURE 1.7, ROADMAP 1.3, WAVE-STATE, homebrew and
@@ -143,7 +146,9 @@ access, or a future public mirror, resolves the same URL.
 
 (from `PYTHONPATH=src .venv/bin/python -m pytest -q` on master at
 `ab1451f`; same suite re-run by cut_release stage 2 with the repo venv
-command). Baseline before the bump was `422 passed in 83.40s`. Mobile:
+command). A final re-run on the tree that now holds this evidence doc
+(master `3ca5325`) is `422 passed in 83.37s (0:01:23)`. Baseline before
+the bump was `422 passed in 83.40s`. Mobile:
 `npx tsc --noEmit` clean (exit 0), mobile tests `50 / pass 50 / fail 0`.
 
 The two test files that asserted an app update against the fixture
