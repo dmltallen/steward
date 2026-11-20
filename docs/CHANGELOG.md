@@ -1,5 +1,14 @@
 # Steward Changelog
 
+## v1.3.2 (2026-11-19, public release correction)
+
+Supersedes v1.3.1. That build predated its own version bump, so the frozen
+binary reported 1.3.0 to the updater and offered an update to the version it
+already was; GitHub also serves a replaced release asset from cache, so the bad
+binary could not be swapped under the same URL. Rebuilt with the version
+consistent across pyproject, `__init__` and the frozen binary. No code change.
+
+
 ## v1.3.1 (2026-11-19, first public release)
 
 The first release published from the public repository. The code is identical to
