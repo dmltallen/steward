@@ -18,14 +18,17 @@ accepted residual risks are below.
 ## Scope
 
 - Repo: `/home/user/steward`
-- Range reviewed: `v1.2.0..HEAD` = 32 commits at the final tip `457d972`
-  (`git describe` = `v1.2.0-32-g457d972`).
+- Range reviewed: `v1.2.0..457d972` = 32 commits at the code tip `457d972`
+  (`git describe` = `v1.2.0-32-g457d972`). This report file is the only commit after
+  that tip (committed as `19579b9`), so the code surfaces under review are exactly the
+  ones the slices exercised.
 - Slice review tips: the citations and feature-seam slice ran at the wave tip `d5f2a90`
   (master `7ffab1f` plus the then-unmerged `wt/cite-wire`); the tool-reachability and
   release slices ran at master `9ea05ef`, where `wt/cite-wire` is merged. Since `9ea05ef`
-  only `457d972` landed, and it is docs only (`docs/PUBLIC-LAUNCH-PLAN.md`, 26 insertions /
-  21 deletions), touching no code, tests, CI, or the surfaces under review. The three
-  slices therefore describe the code at the tip.
+  only `457d972` landed before this report was written, and it is docs only
+  (`docs/PUBLIC-LAUNCH-PLAN.md`, 26 insertions / 21 deletions), touching no code, tests,
+  CI, or the surfaces under review. This report file (committed at `19579b9`) is the
+  only change since. The three slices therefore describe the code at the tip.
 - Feature-to-commit map from the inventory slice (t_a9cfaa22): F8 tools = `f5f9fb5` +
   `d89cad2`; F4 citations = `006a2d5` + `78b1656` in master, `d5f2a90` for the client
   wire-up; offline paid feature-pack seam = `fd77d8c`; one-command release tool with signed
@@ -404,5 +407,7 @@ test_license.py, and the full suite is `422 passed in 86.26s` as shown in the ba
 
 ## Repo state at end of review
 
-`/home/user/steward` is on master at `457d972`, `git status` clean. This review file
-(`docs/REVIEW-1.3.0.md`) is the only change made by the review. No code was edited.
+`/home/user/steward` reviewed the code at `457d972`. This review file was then committed
+as `19579b9` and pushed to `gitea/master`, so HEAD == gitea/master == `19579b9` and
+`git status` is clean. Since `457d972` the only change in the repo is this file itself:
+no code, tests or CI were edited by the review.
