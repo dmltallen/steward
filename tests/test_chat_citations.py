@@ -93,12 +93,19 @@ def _run_grounded(messages, runtime_reply, hits, keep_ctx=False):
     return (final, ctx) if keep_ctx else final
 
 
-def _ctx_with_index(index):
+def _ctx_with_index(index, roots=None):
     root = Path("/tmp/steward-chat-cite-test")
+    # Containment: a grounded turn only cites files inside a configured
+    # retrieval root. Tests that inject hits therefore also inject the roots
+    # that contain them; when roots is None each hit's own directory stands in
+    # for the configured folder, which keeps the happy-path tests honest
+    # without reaching into the real user config.
+    if roots is None:
+        roots = sorted({str(Path(h["path"]).parent) for h in index.hits}) or [str(root)]
     ctx = daemon_mod.DaemonContext(
         runtime=object(), model="qwen3:8b", source_dir="/tmp/none",
         db_path=root / "db" / "steward.db", secret=b"x" * 32, version="test",
-        retrieval_index=index)
+        retrieval_index=index, retrieval_roots=roots)
     # a stub server reference is not needed for _run_tool_loop
     return ctx
 

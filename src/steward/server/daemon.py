@@ -201,7 +201,8 @@ class DaemonContext:
     def __init__(self, *, runtime, model: str, source_dir: str,
                  db_path: Path, secret: bytes, version: str,
                  tool_overrides: dict | None = None,
-                 retrieval_index=None) -> None:
+                 retrieval_index=None,
+                 retrieval_roots=None) -> None:
         self.runtime = runtime
         self.model = model
         self.source_dir = source_dir
@@ -215,6 +216,14 @@ class DaemonContext:
         # does.
         self.retrieval_index = retrieval_index
         self._retrieval_index_lazy = None
+        # Containment roots for a grounded chat turn. The retrieval index can
+        # hold documents from folders that were configured earlier, so a hit is
+        # only usable when its file still sits inside a currently configured
+        # retrieval dir. None means "read Config.retrieval_dirs at first use";
+        # a test or harness may inject a fixed list.
+        self._retrieval_roots = (None if retrieval_roots is None
+                                 else [Path(str(r)).expanduser().resolve()
+                                       for r in retrieval_roots])
         self.pair_code = generate_pair_code()
         self.pairs: set[str] = set()  # distinct device labels that ever paired
         self.limiter = PairRateLimiter()
@@ -301,6 +310,47 @@ class DaemonContext:
             except Exception:  # noqa: BLE001 - grounding is never fatal
                 return None
         return self._retrieval_index_lazy
+
+    def configured_retrieval_roots(self) -> list:
+        """The folders a grounded turn is allowed to cite from (cached).
+
+        Config.retrieval_dirs is the authority, the same list the Files tab
+        writes when a folder is added. An empty list means no folder is
+        configured, and therefore no hit is usable.
+        """
+        if self._retrieval_roots is None:
+            try:
+                from steward.config import Config
+                dirs = Config.load().retrieval_dirs or []
+            except Exception:  # noqa: BLE001 - a broken config is never fatal
+                dirs = []
+            self._retrieval_roots = [Path(str(d)).expanduser().resolve()
+                                     for d in dirs]
+        return self._retrieval_roots
+
+    def hit_within_roots(self, hit: dict) -> bool:
+        """Is this retrieval hit inside a currently configured root?
+
+        The index can hold documents from folders that were configured
+        earlier; a stale hit must never reach the model or the sources event.
+        """
+        roots = self.configured_retrieval_roots()
+        if not roots:
+            return False
+        raw = (hit or {}).get("path")
+        if not raw:
+            return False
+        try:
+            path = Path(str(raw)).expanduser().resolve()
+        except (OSError, RuntimeError):
+            return False
+        for root in roots:
+            try:
+                if path == root or path.is_relative_to(root):
+                    return True
+            except (OSError, ValueError):
+                continue
+        return False
 
     def installed_channel(self) -> str:
         """The install channel that owns this daemon's binary (cached).
@@ -691,7 +741,8 @@ class Handler(BaseHTTPRequestHandler):
             if not stats.get("documents"):
                 return None
             hits = [h for h in index.search(question, k=8)
-                    if float(h.get("score", 0.0)) >= CITE_SCORE_FLOOR]
+                    if float(h.get("score", 0.0)) >= CITE_SCORE_FLOOR
+                    and self.ctx.hit_within_roots(h)]
         except Exception:  # noqa: BLE001 - grounding is never fatal
             return None
         from steward.citations import build_prompt, select_context
@@ -703,6 +754,11 @@ class Handler(BaseHTTPRequestHandler):
     def _append_chat_sources(self, final: str, selected) -> str:
         """Resolve the [n] markers the final reply used and append the Sources
         block, or return the reply untouched when it cited nothing."""
+        if not selected:
+            return final
+        # Defense in depth: the grounding step already dropped hits outside the
+        # configured roots, so a stale path can never be echoed here either.
+        selected = [h for h in selected if self.ctx.hit_within_roots(h)]
         if not selected:
             return final
         try:

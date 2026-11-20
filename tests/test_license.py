@@ -379,3 +379,58 @@ def test_tampered_pack_rejected(vendor):
     doc["payload"]["packs"][0]["version"] = 99
     with pytest.raises(lic.SignatureError):
         lic.verify_document(doc, fingerprint="sha256:testmachine")
+
+
+# -- corrupt on-disk state resolves to free tier, never crashes ---------------
+
+def _corrupt_active(home: Path, payload: str) -> Path:
+    target = lic.license_path(home)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(payload, encoding="utf-8")
+    return target
+
+
+def test_active_license_with_invalid_json_is_free_tier(tmp_path):
+    home = tmp_path / "home"
+    _corrupt_active(home, "not json at all")
+    assert lic.active_license(home) is None
+    st = lic.status(home)
+    assert st["active"] is False
+    assert st["tier"] == "free"
+
+
+def test_active_license_with_non_object_json_is_free_tier(tmp_path):
+    home = tmp_path / "home"
+    _corrupt_active(home, "[1, 2, 3]")
+    assert lic.active_license(home) is None
+    st = lic.status(home)
+    assert st["active"] is False
+    assert st["tier"] == "free"
+
+
+def test_truncated_active_license_is_free_tier(tmp_path):
+    home = tmp_path / "home"
+    _corrupt_active(home, '{"payload": {"lic')
+    assert lic.active_license(home) is None
+    assert lic.status(home)["tier"] == "free"
+
+
+def test_enabled_fails_closed_on_corrupt_license(tmp_path):
+    home = tmp_path / "home"
+    _corrupt_active(home, "garbage")
+    assert lic.enabled("tool_exec", home) is False
+
+
+def test_activate_reports_malformed_file_as_license_error(tmp_path):
+    home = tmp_path / "home"
+    bad = tmp_path / "bad.json"
+    bad.write_text("not json", encoding="utf-8")
+    with pytest.raises(lic.MalformedLicense):
+        lic.activate(bad, home)
+
+
+def test_verify_file_reports_non_object_as_license_error(tmp_path):
+    bad = tmp_path / "array.json"
+    bad.write_text("[]", encoding="utf-8")
+    with pytest.raises(lic.MalformedLicense):
+        lic.verify_file(bad)

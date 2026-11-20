@@ -414,9 +414,21 @@ def verify_document(doc: dict, public_key_hex: str | None = None,
 
 
 def verify_file(path: Path | str, **kwargs) -> License:
-    """Read and fully verify a signed license file on disk."""
-    with open(path, encoding="utf-8") as fh:
-        doc = json.load(fh)
+    """Read and fully verify a signed license file on disk.
+
+    A file that cannot be read or is not a JSON object raises MalformedLicense,
+    which is a LicenseError, so active_license() resolves it to the free tier
+    instead of letting a decoder error escape into the daemon or the CLI.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except OSError as exc:
+        raise MalformedLicense("license file could not be read: %s" % exc)
+    except ValueError as exc:  # includes json.JSONDecodeError
+        raise MalformedLicense("license file is not valid JSON: %s" % exc)
+    if not isinstance(doc, dict):
+        raise MalformedLicense("license file is not a JSON object")
     return verify_document(doc, **kwargs)
 
 
@@ -557,8 +569,15 @@ def activate(path: Path | str, root: Path | None = None) -> License:
     original envelope (payload + signature) is what gets stored.
     """
     import json as _json
-    with open(path, encoding="utf-8") as fh:
-        doc = _json.load(fh)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = _json.load(fh)
+    except OSError as exc:
+        raise MalformedLicense("license file could not be read: %s" % exc)
+    except ValueError as exc:  # includes json.JSONDecodeError
+        raise MalformedLicense("license file is not valid JSON: %s" % exc)
+    if not isinstance(doc, dict):
+        raise MalformedLicense("license file is not a JSON object")
     license = verify_document(doc)
     _atomic_write_json(license_path(root), doc)
     return license
@@ -576,7 +595,7 @@ def active_license(root: Path | None = None) -> License | None:
         return None
     try:
         return verify_file(target)
-    except LicenseError:
+    except (LicenseError, OSError):
         return None
 
 
