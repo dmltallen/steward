@@ -263,6 +263,27 @@ def test_markdown_rendering_keeps_real_markdown(start_daemon):
     assert "MD_OK" in out
 
 
+def test_sources_disclosure_rendering(start_daemon):
+    out = run_node(node_harness([
+        "const S = globalThis.Steward;",
+        "function must(cond, msg){ if(!cond){ throw new Error(msg); } }",
+        "const empty = S.renderSources([]);",
+        "must(empty === '', 'empty sources must render to nothing');",
+        "const src = S.renderSources([{n:1,path:'/tmp/x.md',start_line:3,end_line:19,snippet:'a <script> snippet'}]);",
+        "must(src.indexOf('Sources (1)') !== -1, 'header missing');",
+        "must(src.indexOf('/tmp/x.md') !== -1, 'path missing');",
+        "must(src.indexOf('lines 3-19') !== -1, 'line range missing');",
+        "must(src.indexOf('&lt;script&gt;') !== -1, 'snippet not escaped');",
+        "must(src.indexOf('<script>') === -1, 'raw script tag leaked into sources');",
+        "const single = S.renderSources([{n:1,path:'/a.md',start_line:7,end_line:7,snippet:'x'}]);",
+        "must(single.indexOf('line 7') !== -1, 'single line range missing');",
+        "const multi = S.renderSources([{n:1,path:'/a.md',start_line:1,end_line:1,snippet:'x'},{n:2,path:'/b.md',start_line:4,end_line:5,snippet:'y'}]);",
+        "must(multi.indexOf('Sources (2)') !== -1 && multi.indexOf('[2]') !== -1, 'multi-row missing');",
+        "console.log('SRC_OK');",
+    ]))
+    assert "SRC_OK" in out
+
+
 def test_qr_matrix_encoder_shapes(start_daemon):
     out = run_node(node_harness([
         "const S = globalThis.Steward;",

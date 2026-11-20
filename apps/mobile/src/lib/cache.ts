@@ -7,7 +7,7 @@
  * Pure module: no React Native or Expo imports (Node-testable).
  */
 
-import type { Conversation, ConversationSummary } from './types';
+import type { Conversation, ConversationSummary, SourceRef } from './types';
 
 /** Minimal KV storage, shaped like AsyncStorage. */
 export type StorageLike = {
@@ -110,7 +110,7 @@ export function toCachedConversation(
   id: number,
   title: string,
   createdAt: string,
-  messages: { role: string; content: string }[],
+  messages: { role: string; content: string; sources?: SourceRef[] }[],
 ): Conversation {
   return {
     id,
@@ -122,6 +122,7 @@ export function toCachedConversation(
       content: m.content,
       created_at: createdAt,
       model: null,
+      sources: m.sources,
     })),
   };
 }

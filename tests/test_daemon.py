@@ -317,9 +317,11 @@ def test_sse_deltas_arrive_incrementally(start_daemon):
         events.append(event)
     end = time.monotonic()
 
-    # Delta order matches the model output; [DONE] is the single final event.
+    # Delta order matches the model output; a sources payload precedes [DONE],
+    # which is the single final event.
     assert [json.loads(e)["delta"] for e in events[:4]] == ["one ", "two ", "three ", "four "]
-    assert events[4] == "[DONE]"
+    assert json.loads(events[4])["event"] == "sources"
+    assert events[5] == "[DONE]"
     # The first delta arrived quickly (no back-end work before it)...
     assert first_seen is not None and (first_seen - start) < 0.5
     # ...and the rest of the stream took the full fake generation time: the

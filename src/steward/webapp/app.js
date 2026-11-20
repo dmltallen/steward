@@ -57,6 +57,43 @@
     return s;
   }
 
+  function sourceLocationText(src) {
+    var start = src.start_line, end = src.end_line;
+    if (typeof start === 'number' && typeof end === 'number') {
+      if (start === end) { return 'line ' + start; }
+      return 'lines ' + start + '-' + end;
+    }
+    if (typeof src.offset === 'number') { return 'at char ' + src.offset; }
+    return '';
+  }
+
+  // Pure, DOM-independent: returns the HTML string for the compact Sources
+  // disclosure under a grounded assistant reply (F4 wire). An empty list
+  // renders to ''. Every source value is escaped, so file paths and snippets
+  // (user file content) can never execute markup.
+  function renderSources(sources) {
+    var list = Array.isArray(sources) ? sources : [];
+    if (list.length === 0) { return ''; }
+    var rows = [];
+    for (var i = 0; i < list.length; i++) {
+      var src = (list[i] && typeof list[i] === 'object') ? list[i] : {};
+      var n = src.n != null ? src.n : (i + 1);
+      var path = String(src.path == null ? '<unknown>' : src.path);
+      var loc = sourceLocationText(src);
+      var label = '[' + n + '] ' + escapeHtml(path) +
+        (loc ? ' ' + escapeHtml(loc) : '');
+      var snip = escapeHtml(String(src.snippet == null ? '' : src.snippet));
+      rows.push(
+        '<li><details><summary>' + label + '</summary>' +
+        (snip ? '<p class="source-snippet">' + snip + '</p>' : '') +
+        '</details></li>'
+      );
+    }
+    return '<details class="sources" open><summary>Sources (' + list.length +
+      ')</summary><ul class="sources-list">' + rows.join('') +
+      '</ul></details>';
+  }
+
   function renderMarkdown(source) {
     var src = String(source == null ? '' : source);
     var lines = src.split('\n');
@@ -796,11 +833,13 @@
     body.classList.add('streaming-body');
     body.innerHTML = '';
     wrap.appendChild(body);
+    var sourcesEl = el('div', 'sources');
+    wrap.appendChild(sourcesEl);
     var cursor = el('span', 'cursor');
     body.appendChild(cursor);
     box.appendChild(wrap);
     box.scrollTop = box.scrollHeight;
-    return { wrap: wrap, tools: tools, body: body, cursor: cursor, text: '', toolById: {} };
+    return { wrap: wrap, tools: tools, body: body, sourcesEl: sourcesEl, cursor: cursor, text: '', toolById: {}, sources: [] };
   }
 
   function updateAssistantBubble(entry, delta, done) {
@@ -872,6 +911,7 @@
                   if (parsed.event === 'tool_call') { onToolCall(entry, parsed); }
                   else if (parsed.event === 'approval_required') { onApprovalRequired(entry, parsed); }
                   else if (parsed.event === 'tool_result') { onToolResult(entry, parsed); }
+                  else if (parsed.event === 'sources') { onSources(entry, parsed); }
                   else if (parsed.delta) { updateAssistantBubble(entry, parsed.delta, false); }
                   if (parsed.error) { finish(); }
                 } catch (e) { /* ignore malformed event */ }
@@ -1126,6 +1166,18 @@
     outcome.appendChild(el('span', 'tool-summary', escapeHtml(String(data.summary || (data.ok ? 'Done' : 'Failed')))));
     if (data.ms != null) { outcome.appendChild(el('span', 'tool-ms', escapeHtml('in ' + data.ms + ' ms'))); }
     block.card.appendChild(outcome);
+    scrollChat();
+  }
+
+  function onSources(entry, data) {
+    // The final sources payload of a grounded turn (F4 wire). The list is
+    // rendered as a compact disclosure under the reply; an empty list
+    // (no coverage, or an ungrounded turn) renders nothing.
+    var list = Array.isArray(data.sources) ? data.sources : [];
+    entry.sources = list;
+    if (!entry.sourcesEl) { return; }
+    entry.sourcesEl.innerHTML = renderSources(list);
+    entry.sourcesEl.hidden = list.length === 0;
     scrollChat();
   }
 
@@ -1995,6 +2047,7 @@
   NS.Steward = {
     escapeHtml: escapeHtml,
     renderMarkdown: renderMarkdown,
+    renderSources: renderSources,
     qrMatrixEncode: qrMatrixEncode,
     drawQr: drawQr,
     updateAutocheckEnabled: updateAutocheckEnabled,

@@ -95,9 +95,14 @@ DEFAULT_MODEL = "qwen3:8b"  # resident 8B assistant, the v0.1 pick, benchmarked 
 DEFAULT_SOURCE = str(Path(__file__).resolve().parents[3] / "demo" / "source")
 MAX_BODY = 1_000_000
 # Chat auto-citation (F4): the daemon grounds a turn in the retrieval index at
-# the data root when it has documents. Fail-closed: no db, no documents, a
-# backend error, or nothing above the floor all leave the chat turn unchanged.
-# The floors are caller-side decisions the citation library deliberately left
+# the data root when the request opts in and the index has documents. The
+# reply text carries only the [n] markers the model used; the resolved
+# sources stream as a final {"event":"sources","sources":[...]} SSE payload.
+# Fail-closed: no db, no documents, a backend error, or the request opting out
+# leave the chat turn a plain assistant chat with an empty sources payload.
+# Retrieval returning nothing above the floor grounds with the honest
+# no-coverage instruction and still emits an empty sources payload. The
+# floors are caller-side decisions the citation library deliberately left
 # to the daemon (see docs/RETRIEVAL.md); 0.5 is the minimum cosine a hit needs
 # to be offered to the model, 7000 chars caps the grounded source block.
 CITE_SCORE_FLOOR = 0.5
@@ -118,6 +123,19 @@ def _as_int(value) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _cite_opt_in(data: dict) -> bool:
+    """Whether this chat turn should be grounded in the retrieval index.
+
+    Retrieval-grounded answers are the product default: an indexed root is
+    configured and the request opts in, default on. An explicit boolean false
+    under "cite" in the request body turns the citation layer off for that
+    turn (plain assistant chat, empty sources payload); anything else keeps
+    it on.
+    """
+    value = data.get("cite", True)
+    return value if isinstance(value, bool) else True
 
 
 def is_loopback_ip(ip: str) -> bool:
@@ -638,82 +656,107 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
 
-    def _run_tool_loop(self, messages: list, emit) -> str:
-        """Drive one chat turn through the agent tool loop (F8).
+    def _run_tool_loop(self, messages: list, emit, cite: bool = True) -> tuple[str, list]:
+        """Drive one chat turn through the agent tool loop (F8); return the
+        final text and the structured sources payload (F4 wire).
 
-        every /v1/chat and /chat turn runs run_loop with the tool system prompt
-        and the daemon's approval manager, so a tool-eligible reply executes
-        instead of returning raw JSON blob text. emit receives the SSE events
-        (run_loop streams model deltas and per-step tool events); the shim
-        passes emit=None and gets only final text back.
+        Every /v1/chat and /chat turn runs run_loop with the tool system
+        prompt and the daemon's approval manager, so a tool-eligible reply
+        executes instead of returning raw JSON blob text. emit receives the
+        SSE events (run_loop streams model deltas and per-step tool events);
+        the /chat shim passes emit=None and gets only final text back.
 
         Before the loop the turn is grounded in the retrieval index (F4 chat
-        auto-citation) when the index has documents and scores above the
-        floor. The sources are appended to the system prompt as numbered
-        blocks and every claim is expected to cite [n]. After the loop the
-        citations are resolved and a Sources block is appended to the final
-        text when the reply cited anything. Every failure path leaves the
-        turn ungrounded (exact pre-F4 behavior), never a chat error.
+        auto-citation) when the request opts in (cite, default True) and the
+        index has documents: the numbered source blocks are appended to the
+        system prompt and every claim is expected to cite [n]. The resolved
+        citations are returned as the second element: a list of {n, path,
+        start_line, end_line, snippet} dicts ordered by marker number, empty
+        when the reply cited nothing or retrieval found nothing, and empty
+        for an ungrounded turn. Every failure path leaves the turn grounded
+        only as much as the honest no-coverage instruction (never a chat
+        error). The reply text carries only the [n] markers the model used;
+        the client renders the source list from the sources payload.
         """
-        grounded = self._ground_chat(messages)
+        selected = None
+        instruction = ""
+        if cite:
+            selected, instruction = self._ground_chat(messages)
         system_prompt = tool_system_prompt(self.ctx.tool_registry)
-        if grounded is not None:
-            instruction, selected = grounded
+        if selected is not None:
             system_prompt = system_prompt + "\n\n" + instruction
         final = run_loop(
             self.ctx.runtime, self.ctx.tool_registry, self.ctx.tool_settings,
             self.ctx.approval_manager, messages,
             system_prompt=system_prompt,
             model=self.ctx.model, emit=emit)
-        if grounded is not None:
-            final = self._append_chat_sources(final, grounded[1])
-        return final
+        if selected is None:
+            return final, []
+        return final, self._resolve_chat_sources(final, selected)
 
-    def _ground_chat(self, messages: list):
-        """Return (prompt_instruction, selected) to ground a turn, or None.
+    def _ground_chat(self, messages: list) -> tuple[list | None, str]:
+        """Return (selected, instruction) for a retrieval-grounded turn.
 
-        Fail-closed: None when there is no index (or it has no documents), the
-        backend errors, nothing scores above CITE_SCORE_FLOOR, or the chat has
-        no fresh user turn. Callers append the returned context to the system
-        prompt and cite it as [n]; a None return means the turn is unchanged
-        from a plain assistant chat."""
+        selected is a list (possibly empty) when the turn is grounded: the
+        daemon resolved an index at its data root and that index has
+        documents. An empty selected means retrieval found nothing above
+        CITE_SCORE_FLOOR, so build_prompt(question, []) supplies the honest
+        no-coverage instruction and the turn still emits an empty sources
+        payload. selected is None when the turn is not grounded (no index or
+        no documents, a backend error, or no fresh user turn): the turn stays
+        a plain assistant chat and instruction is empty. Callers append the
+        returned instruction to the system prompt and resolve the [n]
+        citations the reply used back through the returned selected list.
+        """
         user_turn = next((m for m in reversed(messages)
                           if m.get("role") == "user"), None)
         question = (user_turn or {}).get("content", "")
         question = (question or "").strip()
         if not question:
-            return None
+            return None, ""
         index = self.ctx.resolved_retrieval_index()
         if index is None:
-            return None
+            return None, ""
         try:
             stats = index.stats()
             if not stats.get("documents"):
-                return None
+                return None, ""
             hits = [h for h in index.search(question, k=8)
                     if float(h.get("score", 0.0)) >= CITE_SCORE_FLOOR]
         except Exception:  # noqa: BLE001 - grounding is never fatal
-            return None
+            return None, ""
         from steward.citations import build_prompt, select_context
         selected = select_context(hits, budget_chars=CITE_BUDGET_CHARS)
-        if not selected:
-            return None
-        return build_prompt(question, selected), selected
+        return selected, build_prompt(question, selected)
 
-    def _append_chat_sources(self, final: str, selected) -> str:
-        """Resolve the [n] markers the final reply used and append the Sources
-        block, or return the reply untouched when it cited nothing."""
+    def _resolve_chat_sources(self, final: str, selected) -> list[dict]:
+        """The structured sources payload for one grounded turn.
+
+        Resolves the [n] markers the final reply actually used (never
+        invents any): each entry carries n, path, start_line, end_line and
+        snippet, ordered by marker number. An empty selected or a reply that
+        cited nothing resolves to an empty list.
+        """
         if not selected:
-            return final
+            return []
         try:
-            from steward.citations import extract_citations, render_sources
+            from steward.citations import extract_citations
             result = extract_citations(final, selected)
-            sources = render_sources(result["used"])
         except Exception:  # noqa: BLE001 - a broken reply never breaks chat
-            return final
-        if not sources:
-            return final
-        return (final or "").rstrip() + "\n\n" + sources
+            return []
+        out = []
+        for cite in result["used"]:
+            snippet = cite.get("snippet")
+            if not snippet:
+                snippet = " ".join((cite.get("text") or "").split())
+            out.append({
+                "n": cite.get("number"),
+                "path": str(cite.get("path") or ""),
+                "start_line": cite.get("line_start"),
+                "end_line": cite.get("line_end"),
+                "snippet": snippet,
+            })
+        return out
 
     def _handle_v1_chat(self) -> None:
         data = self._read_json()
@@ -736,10 +779,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.end_headers()
         final = ""
+        sources: list = []
         try:
-            final = self._run_tool_loop(messages, emit=self._sse)
+            final, sources = self._run_tool_loop(
+                messages, emit=self._sse, cite=_cite_opt_in(data))
         except Exception as exc:  # noqa: BLE001 - surface mid-stream failure
             self._sse({"error": str(exc)})
+        self._sse({"event": "sources", "sources": sources})
         self._sse_done()
         if conversation_id is not None and final:
             store.add_message(self.ctx.db_path, conversation_id, "assistant",
@@ -764,7 +810,8 @@ class Handler(BaseHTTPRequestHandler):
             store.add_message(self.ctx.db_path, conversation_id, "user",
                               messages[-1]["content"], self.ctx.model)
         try:
-            reply = self._run_tool_loop(messages, emit=None)
+            reply, sources = self._run_tool_loop(
+                messages, emit=None, cite=_cite_opt_in(data))
         except Exception as exc:  # noqa: BLE001 - backend failure is a 502
             self._json(502, {"error": str(exc)})
             return
@@ -772,7 +819,8 @@ class Handler(BaseHTTPRequestHandler):
             store.add_message(self.ctx.db_path, conversation_id, "assistant",
                               reply, self.ctx.model)
         self._json(200, {"id": f"msg-{int(time.time() * 1000)}",
-                         "role": "assistant", "text": reply, "model": self.ctx.model})
+                         "role": "assistant", "text": reply, "model": self.ctx.model,
+                         "sources": sources})
 
     # -- conversations -------------------------------------------------------------
 

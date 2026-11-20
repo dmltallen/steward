@@ -18,6 +18,21 @@ export type ChatMessage = {
   text: string;
   /** Tool steps streamed during this assistant turn, in arrival order. */
   tools?: ToolStep[];
+  /** Retrieval-grounded sources attached to this assistant reply (F4 wire). */
+  sources?: SourceRef[];
+};
+
+/**
+ * One source behind a grounded assistant reply, as delivered by the daemon's
+ * final `{"event":"sources","sources":[...]}` SSE payload. Line numbers are
+ * 1-based inclusive; either may be null when the file is unreadable.
+ */
+export type SourceRef = {
+  n: number;
+  path: string;
+  start_line: number | null;
+  end_line: number | null;
+  snippet: string;
 };
 
 /** Tool risk classes the daemon assigns (contract: read|write|exec|net). */
@@ -78,6 +93,9 @@ export type ConversationMessage = {
   content: string;
   created_at: string;
   model: string | null;
+  /** Attached on the offline cache copy, never on the daemon row, so a cached
+   * grounded answer still shows where it came from. */
+  sources?: SourceRef[];
 };
 
 /** A full conversation from GET /v1/conversations/{id}. */

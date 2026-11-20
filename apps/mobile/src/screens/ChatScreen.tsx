@@ -29,13 +29,68 @@ import { useSession } from '../hooks/useSession';
 import { useUpdateNotice } from '../hooks/useUpdateNotice';
 import { UpdateNotice } from '../components/UpdateNotice';
 import { config } from '../config';
-import type { ChatMessage, Session, ToolStep } from '../lib/types';
+import type { ChatMessage, Session, SourceRef, ToolStep } from '../lib/types';
 import { approvalStatus, applyToolEvent, summarizeToolArgs } from '../lib/tools';
 
 type Props = BottomTabScreenProps<MainTabParamList, 'Chat'>;
 
 const MAX_ASSISTANT_PREVIEW = 200000;
 const MAX_TOOL_SUMMARY = 96;
+
+function sourceRange(s: SourceRef): string {
+  if (typeof s.start_line === 'number' && typeof s.end_line === 'number') {
+    return s.start_line === s.end_line
+      ? `line ${s.start_line}`
+      : `lines ${s.start_line}-${s.end_line}`;
+  }
+  return '';
+}
+
+/** The compact Sources disclosure under a grounded assistant reply (F4 wire).
+ * Collapsed to a header by default; expanding reveals each source's path,
+ * line range and snippet. */
+function SourceBlock({ sources, colors }: { sources: SourceRef[]; colors: Palette }) {
+  const [open, setOpen] = useState(false);
+  if (!sources || sources.length === 0) return null;
+  return (
+    <Pressable
+      onPress={() => {
+        setOpen(!open);
+        haptic.light();
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={`Show ${sources.length} sources`}
+      style={({ pressed }) => [
+        styles.sourcesCard,
+        { backgroundColor: colors.surfaceElevated, borderColor: colors.border, opacity: pressed ? 0.85 : 1 },
+      ]}
+    >
+      <View style={styles.sourcesHeader}>
+        <StewardText variant="caption" secondary>
+          Sources ({sources.length})
+        </StewardText>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={14} color={colors.textTertiary} />
+      </View>
+      {open ? (
+        <View style={styles.sourcesList}>
+          {sources.map((s) => (
+            <View key={s.n} style={[styles.sourceRow, { borderTopColor: colors.border }]}>
+              <StewardText variant="caption" tertiary numberOfLines={1}>
+                [{s.n}] {s.path}
+                {sourceRange(s) ? ` ${sourceRange(s)}` : ''}
+              </StewardText>
+              {s.snippet ? (
+                <StewardText variant="caption" secondary numberOfLines={3} style={styles.sourceSnippet}>
+                  {s.snippet}
+                </StewardText>
+              ) : null}
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
 
 /** One inline tool step rendered inside an assistant bubble (F8). */
 function ToolLine({
@@ -294,12 +349,13 @@ export function ChatScreen({ navigation, route }: Props) {
   }, [session, cache]);
 
   const toChatMessages = useCallback((conv: {
-    messages: { id: number | string; role: string; content: string }[];
+    messages: { id: number | string; role: string; content: string; sources?: SourceRef[] }[];
   }): ChatMessage[] => {
     return conv.messages.map((m) => ({
       id: String(m.id),
       role: m.role === 'user' ? ('user' as const) : ('assistant' as const),
       text: m.content,
+      sources: m.sources,
     }));
   }, []);
 
@@ -411,6 +467,7 @@ export function ChatScreen({ navigation, route }: Props) {
       setStopped(false);
       setError(null);
       let full = '';
+      let turnSources: SourceRef[] = [];
       const patchAssistantTools = (apply: (steps: ToolStep[]) => ToolStep[]) => {
         setMessages((prev) =>
           prev.map((m) => (m.id === assistantId ? { ...m, tools: apply(m.tools ?? []) } : m)),
@@ -426,6 +483,15 @@ export function ChatScreen({ navigation, route }: Props) {
             full += d;
             setMessages((prev) =>
               prev.map((m) => (m.id === assistantId ? { ...m, text: full } : m)),
+            );
+          },
+          onSources: (srcs) => {
+            // The final sources payload of this grounded turn (F4 wire):
+            // rendered under the reply and stored on the message so the
+            // offline cache keeps it.
+            turnSources = srcs;
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantId ? { ...m, sources: srcs } : m)),
             );
           },
           onEvent: (evt) => {
@@ -468,14 +534,18 @@ export function ChatScreen({ navigation, route }: Props) {
           const all = [
             ...pre,
             userMsg,
-            { id: assistantId, role: 'assistant' as const, text: full },
+            { id: assistantId, role: 'assistant' as const, text: full, sources: turnSources },
           ];
           await client.cacheConversation(
             client.buildCachedConversation({
               id: convId,
               title: convTitle ?? 'New conversation',
               createdAt: new Date().toISOString(),
-              messages: all.map((m) => ({ role: m.role, content: m.text })),
+              messages: all.map((m) => ({
+                role: m.role,
+                content: m.text,
+                sources: m.sources,
+              })),
             }),
           );
         }
@@ -775,6 +845,9 @@ export function ChatScreen({ navigation, route }: Props) {
                         ))}
                       </View>
                     ) : null}
+                    {!isUser && item.sources && item.sources.length > 0 ? (
+                      <SourceBlock sources={item.sources} colors={c} />
+                    ) : null}
                     {streaming && item.id === lastAssistantId ? (
                       <View style={styles.typingWrap}>
                         <ActivityIndicator size="small" color={c.onBrand} />
@@ -920,6 +993,26 @@ const styles = StyleSheet.create({
   actionBtn: { padding: 2 },
   typingWrap: { flexDirection: 'row', marginTop: 6 },
   turnTools: { marginTop: 8, gap: 6 },
+  sourcesCard: {
+    marginTop: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    gap: 4,
+  },
+  sourcesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sourcesList: { gap: 6, marginTop: 4 },
+  sourceRow: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 6,
+    gap: 2,
+  },
+  sourceSnippet: { marginTop: 2 },
   toolLine: {
     flexDirection: 'row',
     alignItems: 'center',
