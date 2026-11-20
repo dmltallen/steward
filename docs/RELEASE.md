@@ -162,10 +162,12 @@ Two honest caveats, by design:
   stale copy. That is why the publish step retries the version assertion for
   up to five minutes and reports the measured CDN lag (see stage 8) instead
   of claiming success. Measured on this host on 2026-11-20: a plain read of
-  this raw URL round-tripped in 0.05s, which is fetch latency, not a publish
-  lag; the first real cut records its own reported lag here. A gitea-only
-  publish (`--publish-to gitea`) must never be the default, because it leaves
-  the public raw URL serving the previous manifest.
+  this raw URL round-tripped in 0.05s, and one live run of the tool's own
+  verify step served the current version on the first fetch with a measured
+  lag of 0.2s; neither is a publish lag, and each real cut records its own
+  reported number here. A gitea-only publish (`--publish-to gitea`) must
+  never be the default, because it leaves the public raw URL serving the
+  previous manifest.
 - `STEWARD_OTA_URL` (env) or `ota_url` in `<data>/config.json` still overrides
   the default for clients that need a different source. Reaching the default
   is never required for a normal start: an unreachable source records a
@@ -241,7 +243,7 @@ A release must satisfy both halves of this file:
    binary) with the frozen build, and sign the app payloads.
 3. Write the signed update manifest (schema v2) with the `app` block and the
    per-platform payloads, and publish it at the configured `DEFAULT_OTA_URL`
-   (the raw master URL, public Github). Releases are cut by
+   (the raw master URL, public GitHub). Releases are cut by
    `tools/cut_release.py` (see the runbook above); it refuses to run unless
    the version matches `pyproject.toml` and the CHANGELOG section exists.
    The default publish host is GitHub; use `--publish-to` only to also mount
