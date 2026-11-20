@@ -1213,6 +1213,7 @@ def create_server(addr, *, runtime, model: str = DEFAULT_MODEL,
                   host_ip: str | None = None,
                   tool_overrides: dict | None = None,
                   retrieval_index=None,
+                  retrieval_roots=None,
                   version: str = VERSION) -> StewardServer:
     """Build a fully-wired StewardServer.
 
@@ -1235,7 +1236,8 @@ def create_server(addr, *, runtime, model: str = DEFAULT_MODEL,
                         source_dir=source_dir or DEFAULT_SOURCE,
                         db_path=db_path, secret=key, version=version,
                         tool_overrides=tool_overrides,
-                        retrieval_index=retrieval_index)
+                        retrieval_index=retrieval_index,
+                        retrieval_roots=retrieval_roots)
     return StewardServer(addr, ctx, advertise=advertise,
                          instance_name_override=instance_name_override,
                          host_ip=host_ip)

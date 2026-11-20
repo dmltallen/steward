@@ -116,4 +116,5 @@ def test_sources_step_drops_non_contained_selection(tmp_path):
     outside.write_text("CLASSIFIED PLAN\n")
     handler = _StubHandler(_ctx(FakeIndex(), [str(corpus)]))
     selected = [make_hit(outside, "CLASSIFIED PLAN", score=0.99)]
-    assert handler._append_chat_sources("answer [1].", selected) == "answer [1]."
+    payload = handler._append_chat_sources("answer [1].", selected)
+    assert payload == "answer [1].", "a non-contained hit must never be echoed"
