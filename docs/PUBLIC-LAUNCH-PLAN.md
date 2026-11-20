@@ -1,6 +1,6 @@
 # Steward Public Launch Plan
 
-**Version:** 0.3, 2026-11-19 (code signing recorded as a cost line rather than a gate)
+**Version:** 0.4, 2026-11-19 (Don's decisions: public owner dmltallen, publish gate is a secrets scan plus a community and branding pass, relay held for later, shelf stays private)
 **Status:** planning. Nothing here is published or decided unless it says DECIDED.
 
 This document is the working plan for moving Steward from a private Gitea repository to a
@@ -37,9 +37,10 @@ is not called launched until the second switch is on.
 
 ## 3. Repository and hosting shape
 
-DECIDED (recommended, needs Don's confirmation): one public repository for the application,
-holding source, packaging, docs, the CI workflows and the public half of the update manifest.
-Keep out of the public tree, in a private operations repository or the NAS:
+DECIDED (Don, 2026-11-19): the public repository lives under the **dmltallen** GitHub
+account, not the R1A org. One public repository for the application, holding source,
+packaging, docs, the CI workflows and the public half of the update manifest. Keep out of
+the public tree, in a private operations repository or the NAS:
 
 - the vendor signing key (`~/.steward-keys/steward-signing.key`, already gitignored, never
   leaves the NAS or a hardware-backed store)
@@ -145,7 +146,8 @@ What the evidence says, in order of how much it constrains the build:
    smart-home connectors, an optional hosted off-LAN relay (the Obsidian Sync shape, monthly and
    completely optional), and priority support plus early model access as the 59 USD per year
    line. Never cosmetics, never trimmings, never a feature that was free in the previous release
-   (study 2 finding 3 and section 6).
+   (study 2 finding 3 and section 6). DECIDED (Don, 2026-11-19): the off-LAN relay is a paid
+   feature held for a later release, not part of the public launch and not free.
 4. **The backlash envelope is defined.** Microsoft paywalling AI inside Notepad and Paint became
    the defining "charging inside an app you already own" story, and Plex's 200 percent lifetime
    price hike plus steering pressure produced a community revolt after years of goodwill (study
@@ -191,12 +193,15 @@ install-channel-aware updates, OTA hardening, and the public-repo bootstrap docs
 integrate, independent review, and the 1.3.0 release. Exit: review gate with no blocking
 findings and an update from 1.2.0 to 1.3.0 proven against published artifacts.
 
-**M2, public repository.** Preconditions: vendor key custody confirmed, full history scanned for
-secrets, secret scanning and push protection enabled, `SECURITY.md` and `CONTRIBUTING.md` live,
-the GitHub Actions matrix green on at least linux amd64 and arm64, the manifest published as a
-release asset, and `DEFAULT_OTA_URL` switched to the public manifest. Exit: anonymous curl of the
-install script and of the manifest both return 200, and a fresh machine installs in one line
-with no token.
+**M2, public repository.** Published under the dmltallen account, and gated on two passes Don
+named (2026-11-19): a **secrets scan** of the full history (secret scanning and push protection
+enabled, no key, token or license blob anywhere in the tree or the history), and a **community
+and branding pass** (name and trademark check, logo and icon, README front page that reads like
+a product, issue and contribution surface in place, no price sheet anywhere). Also required:
+vendor key custody confirmed, `SECURITY.md` and `CONTRIBUTING.md` live, the GitHub Actions
+matrix green on at least linux amd64 and arm64, the manifest published as a release asset, and
+`DEFAULT_OTA_URL` switched to the public manifest. Exit: anonymous curl of the install script
+and of the manifest both return 200, and a fresh machine installs in one line with no token.
 
 **M3, Windows and macOS.** Needs the hosted runners that exist only after M2. Code signing is a
 cost line inside this gate, not a precondition for it: certificates are bought when the first
@@ -210,16 +215,16 @@ consumption-only clients, storefront and license minting. Blocked on M2 and the 
 
 ## 8. Open decisions for Don
 
-1. Public repo owner: personal `redonealpha-don` (already authenticated) or a new organization.
-   The AGENT-BRIEF says personal project, not R1A, which argues against the R1A org.
-2. Repository split as in section 3, or a single public repository with the key held outside the
-   tree.
-3. History rewrite before publication, or publish the existing history after a secrets scan.
-4. Whether the optional off-LAN relay is a paid hosted add-on at launch or later. It is the one
-   recurring line the field supports without breaking the no-subscription rule, because it buys
-   running infrastructure rather than gating the product.
-5. Publish pricing at launch or hold the shelf until the A/B test.
-6. Product name and trademark check before any storefront.
+1. History rewrite before publication, or publish the existing history: DECIDED to publish after
+   a secrets scan (Don, 2026-11-19). What the scan finds decides whether a rewrite is needed, so
+   the scan result is the gate, not a separate decision.
+2. Publish pricing at launch or hold the shelf until the A/B test: DECIDED to keep the shelf
+   private until the A/B test (Don, 2026-11-19). The public repo and the download page carry no
+   price sheet until that test reports.
+3. Product name and trademark check before any storefront: open, and owned by the community and
+   branding pass rather than a separate decision.
+
+The public owner is no longer an open decision: it is the dmltallen GitHub account.
 
 ## 9. What is still unmeasured
 
